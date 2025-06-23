@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import dgl
 import dgl.function as fn
-from dgl.nn.pytorch.linear import TypedLinear # https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.TypedLinear.
+from dgl.nn.pytorch.linear import TypedLinear
 
 # Adapted from https://www.dgl.ai/dgl_docs/en/2.4.x/_modules/dgl/nn/pytorch/conv/relgraphconv.html#RelGraphConv
 class RelGraphConvLayer(nn.Module):
@@ -79,3 +79,22 @@ class RelGraphConvLayer(nn.Module):
             
             h_updated = self.dropout(h_updated)
             return h_updated
+
+class RelationalGraphConv(nn.Module):
+    def __init__(self, n_in_dim, m_in_dim, h_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
+        super().__init__()
+        self.normalize = normalize
+        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim, m_in_feat=m_in_dim, out_feat=h_dim, num_rels=num_rels, update=update)
+        layers = [RelGraphConvLayer(h_dim, m_in_dim, h_dim, num_rels, update=update) for _ in range(num_hidden_layers)]
+        self.hidden_layers = nn.ModuleList(layers)
+       
+    def forward(self, g, nfeat, mfeat, etypes):
+        etypes = etypes.long() # expected to be of type long; 64 bit int
+        h = self.initial_layer(g, nfeat, mfeat, etypes=etypes)
+        h = F.leaky_relu(h)
+        if self.normalize: h = F.normalize(h, dim=1) 
+        for layer in self.hidden_layers:
+            h = layer(g, h, mfeat, etypes) 
+            h = F.leaky_relu(h)
+            if self.normalize: h = F.normalize(h, dim=1)
+        return h

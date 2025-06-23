@@ -4,26 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import dgl 
 from dgl.nn import SumPooling
-from groovi.gnn.modules import RelGraphConvLayer
-
-class RelationalGraphConv(nn.Module):
-    def __init__(self, n_in_dim, m_in_dim, h_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
-        super().__init__()
-        self.normalize = normalize
-        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim, m_in_feat=m_in_dim, out_feat=h_dim, num_rels=num_rels, update=update)
-        layers = [RelGraphConvLayer(h_dim, m_in_dim, h_dim, num_rels, update=update) for _ in range(num_hidden_layers)]
-        self.hidden_layers = nn.ModuleList(layers)
-       
-    def forward(self, g, nfeat, mfeat, etypes):
-        etypes = etypes.long() # expected to be of type long; 64 bit int
-        h = self.initial_layer(g, nfeat, mfeat, etypes=etypes)
-        h = F.leaky_relu(h)
-        if self.normalize: h = F.normalize(h, dim=1) 
-        for layer in self.hidden_layers:
-            h = layer(g, h, mfeat, etypes) 
-            h = F.leaky_relu(h)
-            if self.normalize: h = F.normalize(h, dim=1)
-        return h
+from groovi.gnn.modules import RelGraphConvLayer, RelationalGraphConv
 
 class MotifMiningModel(nn.Module):
     def __init__(self, n_in_dim, m_in_dim, h_dim, num_rels, update, num_hidden_layers=6, normalize=False):
