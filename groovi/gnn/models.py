@@ -34,7 +34,7 @@ class MotifMiningModel(nn.Module):
     def forward(self, g):
         nfeat = g.ndata['feat']
         mfeat = g.edata['feat']
-        etypes = g.edata['rel_type'].long()
+        etypes = g.edata['rel_type']
         h = self.conv(g=g, nfeat=nfeat, mfeat=mfeat, etypes=etypes)
         h_pool = self.sumpool(g, h)
         return h_pool
@@ -54,7 +54,7 @@ class EdgeClassificationModel(nn.Module):
     def forward(self, g):
         nfeat = g.ndata['feat']
         mfeat = g.edata['feat']
-        etypes = g.edata['rel_type'].long()
+        etypes = g.edata['rel_type']
         h = self.conv(g=g, nfeat=nfeat, mfeat=mfeat, etypes=etypes)
         with g.local_scope():
             g.ndata['h'] = h
