@@ -89,8 +89,7 @@ class RelationalGraphConv(nn.Module):
         self.hidden_layers = nn.ModuleList(layers)
        
     def forward(self, g, nfeat, mfeat, etypes):
-        etypes = etypes.long() # expected to be of type long; 64 bit int
-        h = self.initial_layer(g, nfeat, mfeat, etypes=etypes)
+        h = self.initial_layer(g, nfeat, mfeat, etypes=etypes.long()) # etypes expected to be of type long; 64 bit int
         h = F.leaky_relu(h)
         if self.normalize: h = F.normalize(h, dim=1) 
         for layer in self.hidden_layers:

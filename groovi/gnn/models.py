@@ -13,17 +13,14 @@ class MotifMiningModel(nn.Module):
         self.sumpool = SumPooling()
 
     def forward(self, g):
-        nfeat = g.ndata['feat']
-        mfeat = g.edata['feat']
-        etypes = g.edata['rel_type']
-        h = self.conv(g=g, nfeat=nfeat, mfeat=mfeat, etypes=etypes)
+        h = self.conv(g=g, nfeat=g.ndata['feat'], mfeat=g.edata['feat'], etypes=g.edata['rel_type'])
         h_pool = self.sumpool(g, h)
         return h_pool
     
 class EdgeClassificationModel(nn.Module):
     def __init__(self, n_in_dim, m_in_dim, h_dim, num_classes, num_rels, update, num_hidden_layers=6, normalize=False):
         super().__init__()
-        self.conv = RelationalGraphConv(n_in_dim=n_in_dim, m_in_dim=m_in_dim, h_dim=h_dim, num_rels=num_rels, num_hidden_layers = num_hidden_layers, update=update, normalize=normalize)
+        self.conv = RelationalGraphConv(n_in_dim=n_in_dim, m_in_dim=m_in_dim, h_dim=h_dim, num_rels=num_rels, num_hidden_layers=num_hidden_layers, update=update, normalize=normalize)
         self.linear = nn.Linear(h_dim * 2, num_classes)
 
     def apply_edges(self, edges):
@@ -33,10 +30,7 @@ class EdgeClassificationModel(nn.Module):
         return {'score': score}
 
     def forward(self, g):
-        nfeat = g.ndata['feat']
-        mfeat = g.edata['feat']
-        etypes = g.edata['rel_type']
-        h = self.conv(g=g, nfeat=nfeat, mfeat=mfeat, etypes=etypes)
+        h = self.conv(g=g, nfeat=g.ndata['feat'], mfeat=g.edata['feat'], etypes=g.edata['rel_type'])
         with g.local_scope():
             g.ndata['h'] = h
             g.apply_edges(self.apply_edges)
