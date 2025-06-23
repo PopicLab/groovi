@@ -79,14 +79,3 @@ class RelGraphConvLayer(nn.Module):
             
             h_updated = self.dropout(h_updated)
             return h_updated
-
-# Usage Example
-if __name__ == "__main__":
-    torch.manual_seed(0)
-    g = dgl.graph(([0, 1, 1, 2, 2], [1, 0, 2, 3, 0]))
-    g.ndata["h"] = torch.randn(4, 5)
-    g.edata["efeat"] = torch.randn(5, 5)
-    g.edata["etype"] = torch.tensor([0, 1, 1, 2, 2])
-    rgcn = RelGraphConvLayer(5, 5, 5, 3, num_bases=3)
-    h = rgcn(g, g.ndata["h"], g.edata["efeat"], g.edata["etype"])
-    print(h)
