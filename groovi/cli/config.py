@@ -105,4 +105,7 @@ class TrainMotifConfig(Config):
 class InferenceMotifConfig(Config):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
-        # ... Fill
+        self.enforced_params = [
+            # data files
+            'graph_paths',
+        ]
