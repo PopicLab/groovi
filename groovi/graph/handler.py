@@ -20,10 +20,14 @@ class GraphHandler:
     def add_graphs(self, graphs: list[GrooviGraph]) -> None:
         assert isinstance(graphs, list), "Input must be a list of GrooviGraph instances."
         self.graphs.extend(graphs)
-    
-    def load(self, path: str):
+
+    def load(self, path: str, save=False) -> list[GrooviGraph]:
+        '''
+        Load graphs from a file. If save is True, the loaded graphs are added to the handler internally.
+        '''
         loaded_graphs = self._load_graphs(path)
-        self.graphs.extend(loaded_graphs)
+        if save:
+            self.graphs.extend(loaded_graphs)
         return loaded_graphs
 
     def save(self):
