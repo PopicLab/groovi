@@ -1,10 +1,10 @@
-# high level models
+from groovi.gnn.modules import RelGraphConvLayer, RelationalGraphConv
+
+import dgl 
+from dgl.nn import SumPooling, AvgPooling, MaxPooling
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-import dgl 
-from dgl.nn import SumPooling, AvgPooling, MaxPooling
-from groovi.gnn.modules import RelGraphConvLayer, RelationalGraphConv
 
 class MotifMiningModel(nn.Module):
     def __init__(self, n_in_dim, m_in_dim, h_dim, num_rels, update="WConcat", pooling='sum', num_hidden_layers=6, normalize=False):
