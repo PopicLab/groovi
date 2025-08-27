@@ -1,6 +1,7 @@
 import dgl
 import numpy as np
 import torch
+from typing import Any
 
 class GrooviGraph:
     '''
@@ -70,11 +71,20 @@ class GrooviGraph:
         assert isinstance(chr_ids, np.ndarray), "Chromosome IDs must be a numpy array."
         self.chr_ids_included = chr_ids
     
+    def nodes(self):
+        return self.graph.nodes()
+
+    def edges(self, form: str = 'all'):
+        return self.graph.edges(form=form)
+
     def num_nodes(self):
         return self.graph.num_nodes()
     
     def num_edges(self):
         return self.graph.num_edges()
+    
+    def out_edges(self, u: Any, form: str = 'all'):
+        return self.graph.out_edges(u, form=form)
 
     def get_subgraph(self, node_ids: list[int]) -> 'GrooviGraph':
         """Get a subgraph from the BreakpointGraph."""
