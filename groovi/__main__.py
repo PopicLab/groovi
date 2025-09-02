@@ -11,7 +11,7 @@ def main():
     parser.add_argument('--config', required=True, help='groovi YAML config file')
     parser.add_argument("--version", action="version", version=groovi.__version__)
     args = parser.parse_args()
-    if not args.command in ["call", "generate", "train_edge", "train_motif", "inference_motif", "validate_motif"]:
+    if not args.command in ["call", "generate", "train", "train_motif", "inference_motif", "validate_motif"]:
         print("[ERROR] Unknown command: '%s'" % args.command)
         parser.print_usage()
         exit(1)
