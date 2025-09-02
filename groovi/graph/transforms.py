@@ -16,14 +16,14 @@ class NormalizeNodes01(T.BaseTransform):
         return g_new
 
 class NormalizeEdges01(T.BaseTransform):
-    def __init__(self, m_features_max: float, edge_types: list[EdgeRelation]):
+    def __init__(self, m_features_max: float, edge_types: list[EdgeFeature]):
         self.edge_types = edge_types
         self.m_features_max = m_features_max
 
     def __call__(self, g):
         g_new: dgl.DGLGraph = g.clone()
         for e_type in self.edge_types:
-            e_type_id = EDGE_RELATION_MAP[e_type]
+            e_type_id = EDGE_FEATURE_TO_ID[e_type]
             ids = (g_new.edata['rel_type'] == e_type_id).nonzero().squeeze()
             g_new.edata['feat'][ids] /= self.m_features_max
         return g_new
@@ -34,15 +34,15 @@ class AddPDEdge(T.BaseTransform):
         pass
 
     def __call__(self, g):
-        assert not torch.any(g.edata['rel_type'] == EDGE_RELATION_MAP[EdgeRelation.PD]), "PD edge already exists in the graph."
+        assert not torch.any(g.edata['rel_type'] == EDGE_FEATURE_TO_ID[EdgeFeature.PD]), "PD edge already exists in the graph."
 
         g_new: dgl.DGLGraph = g.clone()
         u, v = g_new.edges()
-        ref_rel = EDGE_RELATION_MAP[EdgeRelation.REF]
+        ref_rel = EDGE_FEATURE_TO_ID[EdgeFeature.REF]
         edge_mask = g_new.edata['rel_type'] == ref_rel
         u, v = u[edge_mask], v[edge_mask]
-        rd_index = NODE_FEATURE_MAP[NodeFeature.RD]
-        pd_edge_id = EDGE_RELATION_MAP[EdgeRelation.PD]
+        rd_index = NODE_FEATURE_TO_ID[NodeFeature.RD]
+        pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
 
         pairwise_depth = (g_new.ndata['feat'][v,rd_index] - g_new.ndata['feat'][u,rd_index]).unsqueeze(-1)
         m = len(u)
@@ -70,7 +70,7 @@ class AddSuperNode(T.BaseTransform):
         src = torch.full((num_new_edges,), super_node_id, dtype=torch.int64)
         dst = torch.arange(num_new_edges, dtype=torch.int64)
         efeat = torch.ones((num_new_edges, 1), dtype=torch.float32)
-        rel_type = torch.full((num_new_edges,), EDGE_RELATION_MAP[EdgeRelation.SUPER], dtype=torch.int64)
+        rel_type = torch.full((num_new_edges,), EDGE_FEATURE_TO_ID[EdgeFeature.SUPER], dtype=torch.int64)
 
         g_new.add_edges(src, dst, data={'feat': efeat, 'rel_type': rel_type})
         g_new.add_edges(dst, src, data={'feat': efeat, 'rel_type': rel_type})
@@ -86,7 +86,7 @@ class FeatureMask(T.BaseTransform):
         _, d = g_new.ndata['feat'].size()
         n_mask = torch.ones((d,), dtype=torch.float32)
         for feature in self.features:
-            feature_idx = NODE_FEATURE_MAP[feature]
+            feature_idx = NODE_FEATURE_TO_ID[feature]
             n_mask[:, feature_idx] = 0
         g_new.ndata['feat'] = g_new.ndata['feat'] * n_mask
 
@@ -96,7 +96,7 @@ class FeatureMask(T.BaseTransform):
 TRANSFORMS = {
     'ADD_PD_EDGE': AddPDEdge(),
     'NORMALIZE_NODES_01': NormalizeNodes01(n_features_max=100, n_features_min=0.0),
-    'NORMALIZE_EDGES_01': NormalizeEdges01(m_features_max=100, edge_types=[EdgeRelation.ORD12, EdgeRelation.ORD21, EdgeRelation.STRAND_FLIP, EdgeRelation.PD]),
+    'NORMALIZE_EDGES_01': NormalizeEdges01(m_features_max=100, edge_types=[EdgeFeature.ORD12, EdgeFeature.ORD21, EdgeFeature.STRAND_FLIP, EdgeFeature.PD]),
     'SUPER_NODE': AddSuperNode(),
     'FEATURE_MASK': FeatureMask(),
     # ... more transformations if needed

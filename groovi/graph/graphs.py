@@ -51,8 +51,8 @@ class GrooviGraph:
         adj_index.cluster_splitreads()
 
         # begin graph construction
-        seg_rel_id = EDGE_RELATION_MAP[EdgeFeature.SEG]
-        ref_rel_id = EDGE_RELATION_MAP[EdgeFeature.REF]
+        seg_rel_id = EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
+        ref_rel_id = EDGE_FEATURE_TO_ID[EdgeFeature.REF]
         segments = adj_index.get_segments()
         g = dgl.graph(([], []))
         
@@ -110,7 +110,7 @@ class GrooviGraph:
             node_type_src, node_type_dst = adj.get_node_types()
             src_node_id = node_id_map[(adj.chrom1, adj.pos1, node_type_src)]
             dst_node_id = node_id_map[(adj.chrom2, adj.pos2, node_type_dst)]
-            edge_rel_id = EDGE_RELATION_MAP[adj.get_edge_type()]
+            edge_rel_id = EDGE_FEATURE_TO_ID[adj.get_edge_type()]
             g.add_edges(src_node_id, dst_node_id, data={
                 'rel_type': torch.tensor([edge_rel_id], dtype=torch.int64),
                 'feat': torch.tensor([[adj.evidence]], dtype=torch.float32),
@@ -124,8 +124,8 @@ class GrooviGraph:
         edge_mask = g.edata['rel_type'] == ref_rel_id
         u, v = u[edge_mask], v[edge_mask]
         m = len(u)
-        rd_index = NODE_FEATURE_MAP[NodeFeature.RD]
-        pd_edge_id = EDGE_RELATION_MAP[EdgeFeature.PD]
+        rd_index = NODE_FEATURE_TO_ID[NodeFeature.RD]
+        pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
         pairwise_depth = (g.ndata['feat'][v,rd_index] - g.ndata['feat'][u,rd_index]).unsqueeze(-1)
         rel_type = pd_edge_id*torch.ones((m,), dtype=torch.int64)
         g.add_edges(u, v, data={'feat' : pairwise_depth, 'rel_type': rel_type})

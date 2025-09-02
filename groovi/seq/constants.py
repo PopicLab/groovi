@@ -60,8 +60,8 @@ class NodeFeature(Enum):
 # Global Mapping Exports
 ################################################
 
-EDGE_RELATION_MAP = {e_type: i for i, e_type in enumerate(EdgeFeature)}
-NODE_FEATURE_MAP = {feature: i for i, feature in enumerate(NodeFeature)}
+EDGE_FEATURE_TO_ID = {e_type: i for i, e_type in enumerate(EdgeFeature)}
+NODE_FEATURE_TO_ID = {feature: i for i, feature in enumerate(NodeFeature)}
 
 ################################################
 # Visualization Constants

@@ -1,7 +1,6 @@
 from groovi.seq.constants import *
 from groovi.graph.graphs import GrooviGraph
 
-import dgl
 from enum import Enum
 from matplotlib.colors import LinearSegmentedColormap
 from pyvis.network import Network
@@ -31,15 +30,15 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, additional_info: dict = Non
         if not stagger_edges: return 0
         return random.random()
     
-    straight_edges = set([EDGE_RELATION_MAP[relation] for relation in EdgeRelation if relation in [EdgeRelation.REF, EdgeRelation.SEG]])
-    adj_edges = set([EDGE_RELATION_MAP[relation] for relation in EdgeRelation if relation in [EdgeRelation.ORD12, EdgeRelation.ORD21, EdgeRelation.STRAND_FLIP]])
+    straight_edges = set([EDGE_FEATURE_TO_ID[relation] for relation in EdgeFeature if relation in [EdgeFeature.REF, EdgeFeature.SEG]])
+    adj_edges = set([EDGE_FEATURE_TO_ID[relation] for relation in EdgeFeature if relation in [EdgeFeature.ORD12, EdgeFeature.ORD21, EdgeFeature.STRAND_FLIP]])
 
     net = Network(notebook=True, directed=True, cdn_resources='remote')
     g = g.get_dgl_graph()
     n = g.num_nodes()
     # Feature normalization -> color map
     cmap = LinearSegmentedColormap.from_list("light_blue_white_light_red", ["#53ADCA", "#FAFAFA", "#EC5B5B"])
-    index_color = NODE_FEATURE_MAP[node_feature_color_code]
+    index_color = NODE_FEATURE_TO_ID[node_feature_color_code]
     min_val = g.ndata['feat'][:, index_color].min().item()
     max_val = g.ndata['feat'][:, index_color].max().item()
     normalized_features = (g.ndata['feat'][:,index_color] - min_val) / (max_val - min_val)
