@@ -1,13 +1,10 @@
-import torch
-import dgl
-from torch.utils.data import IterableDataset, Dataset
-import dgl.transforms as T
-from groovi.graph.graphs import GrooviGraph
-from typing import Callable, Optional
-
 from groovi.cli.config import *
-from groovi.graph.construction import GraphConstructor
+from groovi.graph.graphs import GrooviGraph
 from groovi.graph.handler import GraphHandler
+
+from torch.utils.data import IterableDataset
+from typing import Callable
+
 
 class StreamingDataset(IterableDataset):
     def __init__(self, config: Config, extraction_fn: Callable = None):
@@ -17,8 +14,7 @@ class StreamingDataset(IterableDataset):
 
     def __iter__(self):
         if isinstance(self.config, GenerateConfig):
-            graph_constructor = GraphConstructor(self.config)
-            graphs: list[GrooviGraph] = graph_constructor.generate_groovi_graphs()
+            graphs: list[GrooviGraph] = GrooviGraph.from_config(self.config)
             yield from self._graph_generator(graphs)
                 
         elif isinstance(self.config, CallConfig) or isinstance(self.config, InferenceMotifConfig):

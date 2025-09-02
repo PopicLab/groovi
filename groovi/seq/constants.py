@@ -27,11 +27,19 @@ class JunctionSource(Enum):
     kCigar = "kCigar"
 
 ################################################
+# Node Type Enums
+################################################
+
+class NodeType(Enum):
+    HEAD = 'HEAD'
+    TAIL = 'TAIL'
+
+################################################
 # Relational Graph Enums
 ################################################
 
 # Edges
-class EdgeRelation(Enum):
+class EdgeFeature(Enum):
     ORD12 = 'ORD12',
     ORD21 = 'ORD21',
     STRAND_FLIP = 'STRAND_FLIP',
@@ -52,7 +60,7 @@ class NodeFeature(Enum):
 # Global Mapping Exports
 ################################################
 
-EDGE_RELATION_MAP = {e_type: i for i, e_type in enumerate(EdgeRelation)}
+EDGE_RELATION_MAP = {e_type: i for i, e_type in enumerate(EdgeFeature)}
 NODE_FEATURE_MAP = {feature: i for i, feature in enumerate(NodeFeature)}
 
 ################################################
