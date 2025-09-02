@@ -1,16 +1,26 @@
 import datetime
+import logging
 import os
 from pathlib import Path
 import shutil
 import yaml
 
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+
 class Config:
     def __init__(self, config_yaml: str, **kwargs):
-        self.dataset_dir = str(Path(config_yaml).parent.resolve())
+        self.experiment_dir = str(Path(config_yaml).parent.resolve())
         with open(config_yaml, 'r') as file:
             config_data = yaml.safe_load(file)
         self.__dict__.update(config_data)
-        self.enforced_params = [] # Changed to a list
+        self.enforced_params = [] 
+        logging.basicConfig(level=LOG_LEVELS[self.logging], format='%(asctime)s - %(levelname)s - %(message)s')
 
     def _validate_params(self):
         for param_name in set(self.enforced_params): 
@@ -22,12 +32,11 @@ class Config:
 class GenerateConfig(Config):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
-        # Changed enforced_params to a list of strings
         self.enforced_params = [
             # data files
             'bam',
             'vcf',
-            'fa',
+            'fai',
             # groovi parameters
             'cluster_radius',
             'evidence_threshold',
@@ -35,11 +44,11 @@ class GenerateConfig(Config):
         ]
         self._validate_params()
         # directory setup
-        self.data_dir = os.path.join(self.dataset_dir, 'data')
-        self.img_dir = os.path.join(self.dataset_dir, 'visuals')
-        [shutil.rmtree(d, ignore_errors=True) for d in [self.data_dir, self.img_dir]]
-        [os.makedirs(d, exist_ok=True) for d in [self.data_dir, self.img_dir]]
-        self.stats_path = os.path.join(self.dataset_dir, 'stats.txt')
+        self.graph_dir = os.path.join(self.experiment_dir, 'graphs')
+        self.img_dir = os.path.join(self.experiment_dir, 'visuals')
+        [shutil.rmtree(d, ignore_errors=True) for d in [self.graph_dir, self.img_dir]]
+        [os.makedirs(d, exist_ok=True) for d in [self.graph_dir, self.img_dir]]
+        self.stats_path = os.path.join(self.experiment_dir, 'stats.txt')
 
 # Edges
 class TrainEdgeClassificationConfig(Config):
@@ -89,11 +98,11 @@ class TrainMotifConfig(Config):
         self._validate_params()
         # data directories
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.chk_dir = os.path.join(self.dataset_dir, 'checkpoints')
-        self.log_dir = os.path.join(self.dataset_dir, 'runs', timestamp)
-        self.data_dir = os.path.join(self.dataset_dir, 'data')
+        self.chk_dir = os.path.join(self.experiment_dir, 'checkpoints')
+        self.log_dir = os.path.join(self.experiment_dir, 'runs', timestamp)
+        self.data_dir = os.path.join(self.experiment_dir, 'data')
         # visualization directories
-        self.img_dir = os.path.join(self.dataset_dir, 'visuals')
+        self.img_dir = os.path.join(self.experiment_dir, 'visuals')
         self.img_dir_graph = os.path.join(self.img_dir, 'graphs')
         self.img_dir_subgraph = os.path.join(self.img_dir, 'subgraphs')
         self.img_dir_plots = os.path.join(self.img_dir, 'plots')

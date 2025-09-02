@@ -32,12 +32,12 @@ class GraphHandler:
 
     def save(self):
         # Save Graphs Together
-        save_graph_path = os.path.join(self.config.data_dir, f"graphs_all.pkl")
+        save_graph_path = os.path.join(self.config.graph_dir, f"graphs_all.pkl")
         self._save_graphs(save_graph_path, self.graphs)
 
         # Save Graphs, separated by connected componnents
         for i, graph in enumerate(self.graphs):
-            save_path = os.path.join(self.config.data_dir, f"graph_{i+1}.pkl")
+            save_path = os.path.join(self.config.graph_dir, f"graph_{i+1}.pkl")
             self._save_graphs(save_path, [graph])
         
         if self.config.visualize_every:
