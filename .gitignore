@@ -1,0 +1,7 @@
+# Hidden Folders
+.data/*
+
+# Cache Files
+__pycache__/
+lib
+groovi.egg-info/

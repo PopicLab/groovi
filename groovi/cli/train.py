@@ -5,8 +5,9 @@ def main(config_yaml):
     # ------ Initialization ------
     # load the training configs
     # ---------Data setup--------
-    # training dataset
-    # data loaders
+    # load graph handler
+    # load and label graphs
+    # setup dataset and dataloaders
     # ---------Model--------
     # initialize/load pretrained model
     # ------ Training process ------
