@@ -3,10 +3,15 @@ from groovi.seq.io import ChrFAIndex
 
 from collections import OrderedDict
 
+class Laterality(Enum):
+    LR = 'LR'
+    RL = 'RL'
+    LL = 'LL'
+    RR = 'RR'
 
 class Edge:
     def __init__(self, chrom1: str, chrom2: str, pos1: int, pos2: int,
-                 source: JunctionSource, edge_type: EdgeFeature, orientation, evidence: int):
+                 source: JunctionSource, edge_type: EdgeFeature, orientation: Laterality, evidence: int):
         self.chrom1 = chrom1
         self.chrom2 = chrom2
         self.pos1 = pos1
@@ -18,6 +23,9 @@ class Edge:
     
     def __repr__(self):
         return f"Edge({self.chrom1}, {self.chrom2}, {self.pos1}, {self.pos2}, {self.source}, {self.edge_type}, {self.orientation}, {self.evidence})"
+    
+    def get_edge_type(self) -> EdgeFeature:
+        return self.edge_type
 
 class SignalExtractor:
     def __init__(self, config):

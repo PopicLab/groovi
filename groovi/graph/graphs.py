@@ -1,7 +1,7 @@
 from groovi.cli.config import Config
 from groovi.seq.constants import *
 from groovi.seq.index import AdjIndex
-from groovi.seq.signal_extraction import SignalExtractor
+from groovi.seq.signal_extraction import *
 
 from collections import deque
 import dgl
@@ -12,11 +12,11 @@ from typing import Any
 class GrooviGraph:
     '''
     A Groovi Graph must have the following fields in dgl graph g.
-    Node features:
+    Node features (g.ndata):
         - 'feat': Tensor of shape (num_nodes, num_node_features)
         - 'position': Tensor of shape (num_nodes,) indicating the genomic position of each node
         - 'chr': Tensor of shape (num_nodes,) indicating the chromosome ID of each node
-    Edge features:
+    Edge features (g.edata):
         - 'feat': Tensor of shape (num_edges, num_edge_features)
         - 'rel_type': Tensor of shape (num_edges,) indicating the type of each edge
         - 'distance': Tensor of shape (num_edges,) indicating the genomic distance between connected nodes
@@ -44,6 +44,19 @@ class GrooviGraph:
     def __repr__(self):
         return f"GrooviGraph(num_nodes={self.graph.num_nodes()}, num_edges={self.graph.num_edges()})"
     
+    @staticmethod
+    def get_node_types(adj: Edge) -> tuple[NodeType, NodeType]:
+        if adj.orientation == Laterality.LL:
+            return NodeType.TAIL, NodeType.TAIL
+        elif adj.orientation == Laterality.RR:
+            return NodeType.HEAD, NodeType.HEAD
+        elif adj.orientation == Laterality.LR:
+            return NodeType.TAIL, NodeType.HEAD
+        elif adj.orientation == Laterality.RL:
+            return NodeType.HEAD, NodeType.TAIL
+        else:
+            raise ValueError(f"Unknown orientation: {adj.orientation}")
+        
     @staticmethod
     def from_config(config: Config) -> list['GrooviGraph']:
         signal_extractor = SignalExtractor(config)
@@ -107,7 +120,7 @@ class GrooviGraph:
         # create adjacency edges
         candidate_src, candidate_dst = [], []
         for adj in adj_index.get_adjacencies():
-            node_type_src, node_type_dst = adj.get_node_types()
+            node_type_src, node_type_dst = GrooviGraph.get_node_types(adj)
             src_node_id = node_id_map[(adj.chrom1, adj.pos1, node_type_src)]
             dst_node_id = node_id_map[(adj.chrom2, adj.pos2, node_type_dst)]
             edge_rel_id = EDGE_FEATURE_TO_ID[adj.get_edge_type()]
@@ -240,7 +253,6 @@ class GrooviGraph:
         return groovi_subgraph
     
     # Internal Helper Functions
-    
     def _remap_original_to_subgraph_ids(
         self,
         subgraph: dgl.DGLGraph,
@@ -272,3 +284,5 @@ class GrooviGraph:
         assert not (remapped_ids == -1).any(), "Some original node IDs were not found in the subgraph."
 
         return remapped_ids
+    
+    
