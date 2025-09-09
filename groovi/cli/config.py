@@ -77,8 +77,7 @@ class TrainMotifConfig(Config):
             'train_extraction_params',
             'validation_extraction_params',
             # model specifications
-            'n_in_dim',
-            'm_in_dim',
+            'node_feature_dim',
             'h_dim',
             'num_rels',
             'num_hidden_layers',
