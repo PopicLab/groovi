@@ -11,18 +11,23 @@ class StreamingDataset(IterableDataset):
         super().__init__()
         self.config = config
         self.extraction_fn = extraction_fn
+        self.handler = GraphHandler(self.config)
 
     def __iter__(self):
         if isinstance(self.config, GenerateConfig):
             graphs: list[GrooviGraph] = GrooviGraph.from_config(self.config)
             yield from self._graph_generator(graphs)
+            logging.info(f"Generated and saving {len(graphs)} graphs.")
+            self.handler.add_graphs(graphs)
+            self.handler.save()
                 
         elif isinstance(self.config, CallConfig) or isinstance(self.config, InferenceMotifConfig):
-            handler = GraphHandler(self.config)
+            # if cache_graphs, save the generated graphs
             for graph_path in self.config.graph_paths:
-                loaded_graphs = handler.load(graph_path, save=False)
+                loaded_graphs = self.handler.load(graph_path, store=self.config.cache_graphs)
                 yield from self._graph_generator(loaded_graphs)
-    
+            if self.config.cache_graphs: self.handler.save()
+
         # ... add support for other stremaing types types [URLs, multiple BAMs, etc.] ...
 
     def _graph_generator(self, graphs: list[GrooviGraph]):
