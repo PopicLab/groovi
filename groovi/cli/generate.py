@@ -4,9 +4,8 @@ from groovi.graph.handler import GraphHandler
 
 import logging
 
-def main(config_yaml):
+def generate(config):
     # .... load config ....
-    config = GenerateConfig(config_yaml)    
     # .... generate graphs ....
     handler = GraphHandler(config)
     dataset = StreamingDataset(config)
@@ -15,3 +14,8 @@ def main(config_yaml):
     logging.info(f"Saving {len(graphs)} graphs.")
     handler.add_graphs(graphs)
     handler.save()
+
+
+def main(config_yaml):
+    config = GenerateConfig(config_yaml)
+    generate(config)
