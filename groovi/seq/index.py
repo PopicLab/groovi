@@ -56,7 +56,7 @@ class AdjIndex:
         '''
         # initialize functions for clustering
         eps_edge = self.config.cluster_radius
-        min_samples = self.config.cluster_samples
+        min_samples = 1
         edge_density_clustering_module = DBSCAN(eps=eps_edge, min_samples=min_samples, metric='manhattan')
         orientation_diffs = {
             'LL': np.array([0,0]),
