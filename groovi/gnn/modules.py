@@ -11,7 +11,6 @@ class RelGraphConvLayer(nn.Module):
     def __init__(
         self,
         n_in_feat,
-        m_in_feat,
         out_feat,
         num_rels,
         regularizer=None,
@@ -22,6 +21,7 @@ class RelGraphConvLayer(nn.Module):
     ):
         super().__init__()
         # set parameters
+        m_in_feat = 1  # edge feature dimension is 1 
         if regularizer is not None and num_bases is None:
             num_bases = num_rels
         in_feat = n_in_feat + m_in_feat #TODO: Change
@@ -81,11 +81,11 @@ class RelGraphConvLayer(nn.Module):
             return h_updated
 
 class RelationalGraphConv(nn.Module):
-    def __init__(self, n_in_dim, m_in_dim, h_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
+    def __init__(self, n_in_dim, h_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
         super().__init__()
         self.normalize = normalize
-        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim, m_in_feat=m_in_dim, out_feat=h_dim, num_rels=num_rels, update=update)
-        layers = [RelGraphConvLayer(h_dim, m_in_dim, h_dim, num_rels, update=update) for _ in range(num_hidden_layers)]
+        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim, out_feat=h_dim, num_rels=num_rels, update=update)
+        layers = [RelGraphConvLayer(h_dim, h_dim, num_rels, update=update) for _ in range(num_hidden_layers)]
         self.hidden_layers = nn.ModuleList(layers)
        
     def forward(self, g, nfeat, mfeat, etypes):
