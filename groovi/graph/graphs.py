@@ -16,7 +16,7 @@ class GrooviGraph:
         - 'feat': Tensor of shape (num_nodes, num_node_features)
         - 'position': Tensor of shape (num_nodes,) indicating the genomic position of each node
         - 'chr': Tensor of shape (num_nodes,) indicating the chromosome ID of each node
-        - 'parity': Tensor of shape (num_nodes,) indicating HEAD/TAIL (0/1) of each node
+        - 'HT': Tensor of shape (num_nodes,) indicating HEAD/TAIL (0/1) of each node
     Edge features (g.edata):
         - 'feat': Tensor of shape (num_edges, num_edge_features)
         - 'rel_type': Tensor of shape (num_edges,) indicating the type of each edge
@@ -29,7 +29,7 @@ class GrooviGraph:
         - chr_ids_included: np.ndarray of unique chromosome IDs included in the graph
     '''
     def __init__(self, graph: dgl.DGLGraph, vcf_path: str = None):
-        required_node_keys = ['feat', 'position', 'chr', 'parity']
+        required_node_keys = ['feat', 'position', 'chr', 'HT']
         required_edge_keys = ['feat', 'rel_type', 'distance']
         assert all(key in graph.ndata for key in required_node_keys), f"Graph nodes must contain keys: {required_node_keys}"
         assert all(key in graph.edata for key in required_edge_keys), f"Graph edges must contain keys: {required_edge_keys}"
@@ -78,7 +78,7 @@ class GrooviGraph:
             g.add_nodes(2, data={
                 'position': torch.tensor([start_pos, end_pos], dtype=torch.int64),
                 'chr': torch.tensor([chrom, chrom], dtype=torch.int64),
-                'parity': torch.tensor([0, 1], dtype=torch.int64)  # 0 for HEAD, 1 for TAIL
+                'HT': torch.tensor([0, 1], dtype=torch.int64)  # 0 for HEAD, 1 for TAIL
             })
             node_id_map[(chrom, start_pos, NodeType.HEAD)] = node_iter
             node_id_map[(chrom, end_pos, NodeType.TAIL)] = node_iter + 1
