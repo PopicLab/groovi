@@ -11,6 +11,7 @@ class ChrFAIndex:
         chr_index = ChrFAIndex()
         with open(fai_fname, "r") as faidx:
             for tid, line in enumerate(faidx):
+                tid = tid + 1
                 name, length, _, _, _ = line[:-1].split()
                 if not all and ("_" in name or "chrM" in name or "chrEBV" in name or "hs" in name): continue
                 chr_index.add(Chr(tid, name, int(length)))
@@ -46,9 +47,12 @@ class ChrFAIndex:
         Returns a dictionary mapping chromosome names to their starting positions in the genome.
         '''
         chr_lengths = self.get_chr_lengths()
-        chr_prefix_sums = OrderedDict({0: 0})  # start with first chromosome at position 0
-        for tid, chr in enumerate(self.tid2chr.values()):
-            if tid == 0: continue
+        chr_prefix_sums = OrderedDict({1: 0})  # start with first chromosome at position 0
+        for tid, chr in self.tid2chr.items():
+            if tid == 1: continue
             chr_prefix_sums[tid] = chr_prefix_sums[tid-1] + chr_lengths[tid-1]
         return chr_prefix_sums
+    
+    def get_tid_to_str_conversion(self) -> dict[int, str]:
+        return {tid: chr.name for tid, chr in self.tid2chr.items()}
     
