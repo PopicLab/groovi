@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import torch
 import yaml
 
 LOG_LEVELS = {
@@ -51,10 +52,40 @@ class GenerateConfig(Config):
         self.stats_path = os.path.join(self.experiment_dir, 'stats.txt')
 
 # Edges
-class TrainEdgeClassificationConfig(Config):
+class TrainConfig(Config):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
         # ... Fill
+        self.enforced_params = [
+            # data specifications
+            'graph_paths',
+            'transforms',
+            # training specifications
+            'validation_ratio',
+            'batch_size',
+            'num_epochs',
+            'learning_rate',
+            'device',
+            # model specifications
+            'hidden_dim',
+            'update',
+            'num_hidden_layers',
+            'normalize',
+            # Initialization
+            'seed',
+            'num_cores',
+            'logging'
+        ]
+        self._validate_params()
+
+        if self.device == 'cuda': assert torch.cuda.is_available()
+
+        # data directories
+        self.data_dir = os.path.join(self.experiment_dir, 'data')
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.log_dir = os.path.join(self.experiment_dir, 'runs', timestamp)
+        self.model_save_dir = os.path.join(self.experiment_dir, 'model')
+        [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.data_dir, self.log_dir, self.model_save_dir]]
 
 class CallConfig(Config):
     def __init__(self, config_yaml: str):
