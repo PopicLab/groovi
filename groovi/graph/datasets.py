@@ -27,8 +27,8 @@ class StaticDataset(Dataset):
             for src, dst in zip(*groovi_graph.get_candidate_edge_ids()):
                 position1 = dgl_graph.ndata['position'][src]
                 position2 = dgl_graph.ndata['position'][dst]
-                chrom1 = CHR_INT_TO_STR[dgl_graph.ndata['chr'][src].item()]
-                chrom2 = CHR_INT_TO_STR[dgl_graph.ndata['chr'][dst].item()]
+                chrom1 = groovi_graph.chr_int_to_str[dgl_graph.ndata['chr'][src].item()]
+                chrom2 = groovi_graph.chr_int_to_str[dgl_graph.ndata['chr'][dst].item()]
 
                 label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
                 labels.append(label)
@@ -57,6 +57,8 @@ class StreamingDataset(IterableDataset):
     def __iter__(self):
         if isinstance(self.config, GenerateConfig):
             graphs: list[GrooviGraph] = GrooviGraph.from_config(self.config)
+            if self.config.split_by_connected_components:
+                graphs = sum([GrooviGraph._split_by_components(graph) for graph in graphs], [])
             yield from self._graph_generator(graphs)
             logging.info(f"Generated and saving {len(graphs)} graphs.")
             self.handler.add_graphs(graphs)
