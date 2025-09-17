@@ -77,7 +77,10 @@ class AddSuperNode(T.BaseTransform):
         
         return g_new
 
-class FeatureMask(T.BaseTransform):
+'''
+Feature Masking Transforms
+'''
+class NodeFeatureMask(T.BaseTransform):
     def __init__(self, features: list[NodeFeature] = []):
         self.features = features
 
@@ -98,6 +101,7 @@ TRANSFORMS = {
     'NORMALIZE_NODES_01': NormalizeNodes01(n_features_max=100, n_features_min=0.0),
     'NORMALIZE_EDGES_01': NormalizeEdges01(m_features_max=100, edge_types=[EdgeFeature.ORD12, EdgeFeature.ORD21, EdgeFeature.STRAND_FLIP, EdgeFeature.PD]),
     'SUPER_NODE': AddSuperNode(),
-    'FEATURE_MASK': FeatureMask(),
+    'NODE_MASK_CLIPPINGS': NodeFeatureMask([NodeFeature.RD_CLIPPED_L, NodeFeature.RD_CLIPPED_R]),
+    'NODE_MASK_INSERTIONS': NodeFeatureMask([NodeFeature.IN]),
     # ... more transformations if needed
 }
