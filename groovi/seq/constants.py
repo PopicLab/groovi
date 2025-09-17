@@ -1,6 +1,31 @@
 from enum import Enum
 
 ################################################
+# SV Classes
+################################################
+
+SV_CLASSES = [
+    'NEG',
+    'DEL',
+    'DUP',
+    'INS',
+    'INV',
+    'dDUP-A', 'dDUP-B',
+    'nrTRA-A', 'nrTRA-B',
+]
+
+SV_CLASS_TO_ID_HELPER = {sv_class: i for i, sv_class in enumerate(SV_CLASSES)}
+SV_CLASS_TO_ID_FN = lambda sv_class: SV_CLASS_TO_ID_HELPER.get(sv_class, 0)  # default to 'NEG' if not found
+
+
+################################################
+# Chromosome Indexing
+################################################
+
+CHR_STR_TO_INT = {f'chr{i}': i for i in range(1, 22)} | {'chrX': 22, 'chrY': 23} 
+CHR_INT_TO_STR = {i: f'chr{i}' for i in range(1, 22)} | {22: 'chrX', 23: 'chrY'}
+
+################################################
 # Graph Construction Enums
 ################################################
 
@@ -39,6 +64,7 @@ class NodeType(Enum):
 ################################################
 
 # Edges
+# TODO: consider feature subsets
 class EdgeFeature(Enum):
     ORD12 = 'ORD12',
     ORD21 = 'ORD21',
@@ -46,7 +72,6 @@ class EdgeFeature(Enum):
     REF = 'REF',
     SEG = 'SEG',
     PD = 'PD',
-    SUPER = 'SUPER'
 
 # Nodes
 class NodeFeature(Enum):
