@@ -16,6 +16,7 @@ class GrooviGraph:
         - 'feat': Tensor of shape (num_nodes, num_node_features)
         - 'position': Tensor of shape (num_nodes,) indicating the genomic position of each node
         - 'chr': Tensor of shape (num_nodes,) indicating the chromosome ID of each node
+        - 'HT': Tensor of shape (num_nodes,) indicating HEAD/TAIL (0/1) of each node
     Edge features (g.edata):
         - 'feat': Tensor of shape (num_edges, num_edge_features)
         - 'rel_type': Tensor of shape (num_edges,) indicating the type of each edge
@@ -28,7 +29,7 @@ class GrooviGraph:
         - chr_ids_included: np.ndarray of unique chromosome IDs included in the graph
     '''
     def __init__(self, graph: dgl.DGLGraph, vcf_path: str = None):
-        required_node_keys = ['feat', 'position', 'chr']
+        required_node_keys = ['feat', 'position', 'chr', 'HT']
         required_edge_keys = ['feat', 'rel_type', 'distance']
         assert all(key in graph.ndata for key in required_node_keys), f"Graph nodes must contain keys: {required_node_keys}"
         assert all(key in graph.edata for key in required_edge_keys), f"Graph edges must contain keys: {required_edge_keys}"
@@ -76,7 +77,8 @@ class GrooviGraph:
             chrom, start_pos, end_pos = segment.get_chrom(), segment.get_start_pos(), segment.get_end_pos()
             g.add_nodes(2, data={
                 'position': torch.tensor([start_pos, end_pos], dtype=torch.int64),
-                'chr': torch.tensor([chrom, chrom], dtype=torch.int64)
+                'chr': torch.tensor([chrom, chrom], dtype=torch.int64),
+                'HT': torch.tensor([0, 1], dtype=torch.int64)  # 0 for HEAD, 1 for TAIL
             })
             node_id_map[(chrom, start_pos, NodeType.HEAD)] = node_iter
             node_id_map[(chrom, end_pos, NodeType.TAIL)] = node_iter + 1
@@ -125,6 +127,10 @@ class GrooviGraph:
             dst_node_id = node_id_map[(adj.chrom2, adj.pos2, node_type_dst)]
             edge_rel_id = EDGE_FEATURE_TO_ID[adj.get_edge_type()]
             g.add_edges(src_node_id, dst_node_id, data={
+                'rel_type': torch.tensor([edge_rel_id], dtype=torch.int64),
+                'feat': torch.tensor([[adj.evidence]], dtype=torch.float32),
+            })
+            g.add_edges(dst_node_id, src_node_id, data={
                 'rel_type': torch.tensor([edge_rel_id], dtype=torch.int64),
                 'feat': torch.tensor([[adj.evidence]], dtype=torch.float32),
             })
