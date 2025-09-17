@@ -2,7 +2,7 @@ from groovi.cli.config import *
 from groovi.graph.graphs import GrooviGraph
 from groovi.graph.handler import GraphHandler
 from groovi.graph.transforms import TRANSFORMS
-from groovi.seq.vcf import VCF_KDTree
+from groovi.seq.labeling import VCF_KDTree
 from groovi.seq.constants import *
 
 import dgl
