@@ -108,6 +108,11 @@ class VCF_KDTree:
         # TODO ... other filters (OP type, head/tail, ...)
         # ie indices = [i for i in indices if self.edges[i].get_start_chrom() == chrom and self.edges[i].get_target_chrom() == chrom_target]
         filtered_records = [self.edges[i] for i in indices]
+
+        # TODO: handle no matches
+        if len(filtered_records) == 0:
+            raise ValueError("No matching records found in VCF for the given query.")
+        
         label = filtered_records[0].get_label()
 
         return label

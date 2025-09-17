@@ -28,7 +28,6 @@ class StaticDataset(Dataset):
                 position1, position2 = dgl_graph.ndata['position'][src], dgl_graph.ndata['position'][dst]
                 chrom1, chrom2 = groovi_graph.get_chr_names_by_node_ids([dgl_graph.ndata['chr'][src].item(), dgl_graph.ndata['chr'][dst].item()])
                 label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
-                print(f'{label=}')
                 labels.append(label)
 
             labels = torch.tensor(labels, dtype=torch.long)
