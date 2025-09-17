@@ -78,6 +78,9 @@ class AdjRecord:
     def get_label(self):
         return self.label
 
+    def __repr__(self):
+        return f'AdjRecord({self.vcf_record.sv_id}, {self.vcf_record.chrom}:{self.start}-{self.stop}, {self.vcf_record.target_chrom}, {self.vcf_record.sv_type})'
+
 class AdjRecordContainer:
     def __init__(self, vcf_record_container: VCFRecordContainer):
         self.edges = []
@@ -86,7 +89,7 @@ class AdjRecordContainer:
             self.edges.append(edge_record)
         
     def get_adj_records(self):
-        return self.edges
+        return self.edges    
     
 '''
 Structures for querying Groovi specific VCF Records
@@ -101,11 +104,10 @@ class VCF_KDTree:
     def query_top_label(self, chrom: str, chrom_target: str, query: np.ndarray, k: int = 5) -> list[VCFRecord]:
         # Query the KDTree for the top k records within a certain distance
         distances, indices = self.kdtree.query(query, k=k)
-        # Filter if needed
+        
         # TODO ... other filters (OP type, head/tail, ...)
         # ie indices = [i for i in indices if self.edges[i].get_start_chrom() == chrom and self.edges[i].get_target_chrom() == chrom_target]
         filtered_records = [self.edges[i] for i in indices]
-
         label = filtered_records[0].get_label()
 
         return label
