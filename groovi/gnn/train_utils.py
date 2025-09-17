@@ -1,26 +1,55 @@
 import os
 import torch
-from tqdm import tqdm
 import dgl
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
+    """
+    Trains and validates a model with rich progress bars, including the current epoch number.
+    """
     model = model.to(device)
-    for epoch in tqdm(range(num_epochs)):
-        train_loss = train_one_epoch(model, train_dataloader, optimizer, loss_fn, device)
-        tensorboard_writer.add_scalar('Train/AvgLoss', train_loss, epoch)
-        if epoch % validation_interval == 0:
-            metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
-            for key, value in metrics.items():
-                tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
-            torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
+
+    # Define the rich progress bar for the main training epochs
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeElapsedColumn(),
+        "|",
+        TimeRemainingColumn(),
+        "|",
+        TextColumn("[progress.description]{task.fields[loss]}"),
+    ) as progress:
+        # Create a task for the main epoch loop
+        epoch_task = progress.add_task("[green]Training...", total=num_epochs, loss="N/A")
+
+        train_loss, val_loss = 0.0, 0.0
+        for epoch in range(num_epochs):
+            # Validate
+            if epoch % validation_interval == 0:
+                metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
+                for key, value in metrics.items():
+                    tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
+                torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
+                
+                val_loss = metrics['AvgLoss']
+                progress.update(epoch_task, loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]")
+
+            # Train
+            train_loss = train_one_epoch(model, train_dataloader, optimizer, loss_fn, device)
+            progress.update(epoch_task, 
+                            advance=1, 
+                            description=f"[green]Training Epoch {epoch + 1}/{num_epochs}[/green]",
+                            loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]")
+            tensorboard_writer.add_scalar('Train/AvgLoss', train_loss, epoch)
+
 
     # ------ Final Steps ------
     final_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
     for key, value in final_metrics.items():
-        tensorboard_writer.add_scalar(f'Final/{key}', value, epoch)
+        tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
     tensorboard_writer.close()
     return model
-
 def train_one_epoch(model, dataloader, optimizer, loss_fn, device) -> float:
     model.train()
     total_loss = 0
