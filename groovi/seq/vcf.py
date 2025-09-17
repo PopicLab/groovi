@@ -4,8 +4,10 @@ from groovi.seq.io import *
 import numpy as np
 from pysam import VariantFile
 from scipy.spatial import KDTree
-from typing import Union
 
+'''
+VCF Parsing, Method agnostic
+'''
 class VCFRecord:
     def __init__(self, start: int, stop: int, target: str, chrom: str, target_chrom: str, sv_id: str, op_type, sv_type: str, sv_grammar: str, sv_zygosity: str):
         self.start = start
@@ -49,14 +51,17 @@ class VCFRecordContainer:
     def get_records(self):
         return self.records
     
+'''
+Groovi specific VCF processing, adaptable to future labeling needs
+'''
 class AdjRecord:
     def __init__(self, vcf_record: VCFRecord):
         self.vcf_record = vcf_record
+        self.start = vcf_record.start
+        self.stop = vcf_record.stop
 
         # TODO: change depending on label
         self.label = SV_CLASS_TO_ID_FN(vcf_record.get_sv_type())
-        self.start = vcf_record.start
-        self.stop = vcf_record.stop
 
     def get_start_pos(self):
         return self.start
@@ -82,7 +87,10 @@ class AdjRecordContainer:
         
     def get_adj_records(self):
         return self.edges
-
+    
+'''
+Structures for querying Groovi specific VCF Records
+'''
 class VCF_KDTree:
     def __init__(self, vcf_path: str):
         edge_record_container = AdjRecordContainer(VCFRecordContainer(vcf_path))
