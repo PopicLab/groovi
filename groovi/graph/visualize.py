@@ -34,7 +34,6 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, additional_info: dict = Non
     adj_edges = set([EDGE_FEATURE_TO_ID[relation] for relation in EdgeFeature if relation in [EdgeFeature.ORD12, EdgeFeature.ORD21, EdgeFeature.STRAND_FLIP]])
 
     net = Network(notebook=True, directed=True, cdn_resources='remote')
-    g = g.get_dgl_graph()
     n = g.num_nodes()
     # Feature normalization -> color map
     cmap = LinearSegmentedColormap.from_list("light_blue_white_light_red", ["#53ADCA", "#FAFAFA", "#EC5B5B"])
@@ -51,8 +50,9 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, additional_info: dict = Non
         title = f'Features: {node_features}'
         if 'position' in g.ndata:
             title += f'\n location: {g.ndata["position"][node_id]}'
-        if 'chr_id' in g.ndata:
-            title += f'\n chr_id: {g.ndata["chr_id"][node_id]}'
+        if 'chr' in g.ndata:
+            chr_name = g.get_chr_names_by_node_ids([node_id])
+            title += f'\n chr: {chr_name}'
 
         r_c,g_c,b_c = normalized_rd_colors[node_id]*255
         r_c,g_c,b_c = int(r_c), int(g_c), int(b_c)
