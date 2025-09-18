@@ -90,13 +90,18 @@ def validate_one_epoch(model, dataloader, loss_fn, device) -> dict:
     logging_metrics = {
         'AvgLoss': total_loss / len(dataloader),
         'Accuracy': correct / total,
-        'Precision': precision_score(blabels, predicted, zero_division=0), # avoid divide by zero error when no positive predictions
-        'Recall': recall_score(blabels, predicted, zero_division=0),
-        'F1': f1_score(blabels, predicted, zero_division=0),
-
+        # global metrics across all classes
+        'Precision': precision_score(blabels, predicted, average='micro', zero_division=0), 
+        'Recall': recall_score(blabels, predicted, average='micro', zero_division=0),
+        'F1': f1_score(blabels, predicted, average='micro', zero_division=0),
     }
+    
     misc_metrics = {
-        'ConfusionMatrix': confusion_matrix(blabels, predicted)
+        'ConfusionMatrix': confusion_matrix(blabels, predicted),
+        # global metrics separated by class
+        'Precision-by-class': precision_score(blabels, predicted, average=None, zero_division=0), 
+        'Recall-by-class': recall_score(blabels, predicted, average=None, zero_division=0),
+        'F1-by-class': f1_score(blabels, predicted, average=None, zero_division=0),
     }
     return logging_metrics, misc_metrics
 
