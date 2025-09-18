@@ -62,10 +62,10 @@ class RemovePDEdge(T.BaseTransform):
         pass
 
     def __call__(self, g):
-        assert torch.any(g.edata['rel_type'] == EDGE_FEATURE_TO_ID[EdgeFeature.PD]), "No PD edge exists in the graph."
+        pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
+        assert torch.any(g.edata['rel_type'] == pd_edge_id), "No PD edge exists in the graph."
 
         g_new: dgl.DGLGraph = g.clone()
-        pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
         edge_mask = g_new.edata['rel_type'] == pd_edge_id
         edge_ids = g_new.edges('eid')
         g_new.remove_edges(edge_ids[edge_mask])
