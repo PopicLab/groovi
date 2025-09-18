@@ -5,6 +5,7 @@ from groovi.seq.signal_extraction import *
 
 from collections import deque
 import dgl
+import dgl.transforms as T
 import numpy as np
 import torch
 from typing import Any
@@ -273,6 +274,12 @@ class GrooviGraph:
         groovi_subgraph._set_chr_int_to_str_conversion(self.chr_int_to_str)
         return groovi_subgraph
     
+    def apply_transforms(self, transform: T.BaseTransform) -> 'GrooviGraph':
+        """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""
+        transformed_graph = transform(self.graph)
+        self.graph = transformed_graph
+        return self
+
     # Internal Helper Functions
     def _remap_original_to_subgraph_ids(
         self,
