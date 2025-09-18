@@ -62,15 +62,9 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, additional_info: dict = Non
     # Add edges to the PyVis network
     u, v, m = g.edges(form='all')
 
-    all_eids = set()
-    all_nids = set()
     for u, v, edge_id in zip(u, v, m):
         edge_type = g.edata['rel_type'][edge_id].item()
         title = f"Edge Type: {g.edata['rel_type'][edge_id]} \n Data: {g.edata['feat'][edge_id]} \n Edge ID: {edge_id.item()}"
-        if edge_type < 3: 
-            all_eids.add(edge_id.item())
-            all_nids.add(u.item())
-            all_nids.add(v.item())
         if additional_info and 'edge_label' in additional_info and edge_id < len(additional_info['edge_label']):
             edge_label = additional_info['edge_label'][edge_id]
             title += f'\n Edge Labeledge_label: {edge_label}'
