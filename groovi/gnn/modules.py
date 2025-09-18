@@ -83,11 +83,11 @@ class RelGraphConvLayer(nn.Module):
             return h_updated
 
 class RelationalGraphConv(nn.Module):
-    def __init__(self, n_in_dim, h_dim, ht_h_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
+    def __init__(self, n_in_dim, h_dim, ht_emb_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
         super().__init__()
         self.normalize = normalize
-        self.ht_embedding = nn.Embedding(len(NodeType), ht_h_dim) # 2 for head/tail
-        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim + ht_h_dim, out_feat=h_dim, num_rels=num_rels, update=update)
+        self.ht_embedding = nn.Embedding(len(NodeType), ht_emb_dim) # 2 for head/tail
+        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim + ht_emb_dim, out_feat=h_dim, num_rels=num_rels, update=update)
         layers = [RelGraphConvLayer(h_dim, h_dim, num_rels, update=update) for _ in range(num_hidden_layers)]
         self.hidden_layers = nn.ModuleList(layers)
        
