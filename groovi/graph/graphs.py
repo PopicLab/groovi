@@ -155,7 +155,6 @@ class GrooviGraph:
         pairwise_depth = (g.ndata['feat'][v,rd_index] - g.ndata['feat'][u,rd_index]).unsqueeze(-1)
         rel_type = pd_edge_id*torch.ones((m,), dtype=torch.int64)
         g.add_edges(u, v, data={'feat' : pairwise_depth, 'rel_type': rel_type})
-        g.add_edges(v, u, data={'feat' : pairwise_depth, 'rel_type': rel_type})
 
         # add distance feature
         u, v, _ = g.edges(form='all')
@@ -280,6 +279,8 @@ class GrooviGraph:
         """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""
         transformed_graph = transform(self.graph)
         self.graph = transformed_graph
+        self.ndata = transformed_graph.ndata
+        self.edata = transformed_graph.edata
         return self
     
     # Internal Helper Functions
