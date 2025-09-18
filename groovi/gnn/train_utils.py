@@ -80,7 +80,7 @@ def validate_one_epoch(model, dataloader, loss_fn, device) -> dict:
             logits = model(bg, bsrc, bdst)
             loss = loss_fn(logits, blabels)
             total_loss += loss.item()
-            _, predicted = torch.max(logits, 1)
+            _, predicted = torch.max(logits, dim=1)
             correct += (predicted == blabels).sum().item()
             total += blabels.size(0)
 
@@ -90,10 +90,10 @@ def validate_one_epoch(model, dataloader, loss_fn, device) -> dict:
     logging_metrics = {
         'AvgLoss': total_loss / len(dataloader),
         'Accuracy': correct / total,
-        'Precision': precision_score(blabels, predicted),
-        'Recall': recall_score(blabels, predicted),
-        'F1': f1_score(blabels, predicted),
-        
+        'Precision': precision_score(blabels, predicted, zero_division=0), # avoid divide by zero error when no positive predictions
+        'Recall': recall_score(blabels, predicted, zero_division=0),
+        'F1': f1_score(blabels, predicted, zero_division=0),
+
     }
     misc_metrics = {
         'ConfusionMatrix': confusion_matrix(blabels, predicted)
