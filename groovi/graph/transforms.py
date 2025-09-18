@@ -1,10 +1,14 @@
+from groovi.graph.graphs import GrooviGraph
+from groovi.seq.constants import *
+
 import dgl
 import torch
 from dgl import transforms as T
-from groovi.seq.constants import *
 
 
-# node transforms
+'''
+Normalization Transforms
+'''
 class NormalizeNodes01(T.BaseTransform):
     def __init__(self, n_features_max: float, n_features_min: float = 0):
         self.n_features_max = n_features_max
@@ -28,7 +32,9 @@ class NormalizeEdges01(T.BaseTransform):
             g_new.edata['feat'][ids] /= self.m_features_max
         return g_new
 
-# edge transforms
+'''
+PD Edge Transformation
+'''
 class AddPDEdge(T.BaseTransform):
     def __init__(self):
         pass
@@ -50,12 +56,55 @@ class AddPDEdge(T.BaseTransform):
         g_new.add_edges(u, v, data={'feat' : pairwise_depth, 'rel_type': rel_type})
 
         return g_new
+    
+class RemovePDEdge(T.BaseTransform):
+    def __init__(self):
+        pass
+
+    def __call__(self, g):
+        pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
+        assert torch.any(g.edata['rel_type'] == pd_edge_id), "No PD edge exists in the graph."
+
+        g_new: dgl.DGLGraph = g.clone()
+        edge_mask = g_new.edata['rel_type'] == pd_edge_id
+        edge_ids = g_new.edges('eid')
+        g_new.remove_edges(edge_ids[edge_mask])
+
+        return g_new
+
+class AddPDEdgeDirected(T.BaseTransform):
+    def __init__(self):
+        pass
+
+    def __call__(self, g):
+        assert not torch.any(g.edata['rel_type'] == EDGE_FEATURE_TO_ID[EdgeFeature.PD]), "PD edge already exists in the graph."
+
+        g_new: dgl.DGLGraph = g.clone()
+        u, v = g_new.edges()
+
+        ref_rel = EDGE_FEATURE_TO_ID[EdgeFeature.REF]
+        rd_index = NODE_FEATURE_TO_ID[NodeFeature.RD]
+        pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
+
+        edge_mask = g_new.edata['rel_type'] == ref_rel
+        masked_u, masked_v = u[edge_mask], v[edge_mask]
+        m = len(masked_u)
+
+        uv_directed = torch.stack([masked_u, masked_v], dim=0)
+        u_directed = uv_directed.min(dim=0).values
+        v_directed = uv_directed.max(dim=0).values # 60
+        pairwise_depth = (g_new.ndata['feat'][v_directed,rd_index] - g_new.ndata['feat'][u_directed,rd_index]).unsqueeze(-1)
+        rel_type = pd_edge_id*torch.ones((m,), dtype=torch.int64)
+
+        g_new.add_edges(masked_u, masked_v, data={'feat' : pairwise_depth, 'rel_type': rel_type})
+
+        return g_new
 
 class AddSuperNode(T.BaseTransform):
     def __init__(self):
         pass
 
-    def __call__(self, g):
+    def __call__(self, g: GrooviGraph):
         g_new = g.clone()
         num_original_nodes = g_new.num_nodes()
 
@@ -77,7 +126,10 @@ class AddSuperNode(T.BaseTransform):
         
         return g_new
 
-class FeatureMask(T.BaseTransform):
+'''
+Feature Masking Transforms
+'''
+class NodeFeatureMask(T.BaseTransform):
     def __init__(self, features: list[NodeFeature] = []):
         self.features = features
 
@@ -95,9 +147,12 @@ class FeatureMask(T.BaseTransform):
 # global export for transformations mappings
 TRANSFORMS = {
     'ADD_PD_EDGE': AddPDEdge(),
+    'ADD_PD_EDGE_DIRECTED': AddPDEdgeDirected(),
+    'REMOVE_PD_EDGE': RemovePDEdge(),
     'NORMALIZE_NODES_01': NormalizeNodes01(n_features_max=100, n_features_min=0.0),
     'NORMALIZE_EDGES_01': NormalizeEdges01(m_features_max=100, edge_types=[EdgeFeature.ORD12, EdgeFeature.ORD21, EdgeFeature.STRAND_FLIP, EdgeFeature.PD]),
     'SUPER_NODE': AddSuperNode(),
-    'FEATURE_MASK': FeatureMask(),
+    'NODE_MASK_CLIPPINGS': NodeFeatureMask([NodeFeature.RD_CLIPPED_L, NodeFeature.RD_CLIPPED_R]),
+    'NODE_MASK_INSERTIONS': NodeFeatureMask([NodeFeature.IN]),
     # ... more transformations if needed
 }

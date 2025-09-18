@@ -72,7 +72,7 @@ class GraphHandler:
             summary_entry = {
                 'num_nodes': graph.num_nodes(),
                 'num_edges': graph.num_edges(),
-                'chr_ids': graph.get_chr_ids_included(),
+                'chr_ids': graph.get_chr_ids_included(as_string=True),
                 'vcf': graph.vcf_path
                 # ... add more statistics if needed
             }

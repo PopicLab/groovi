@@ -1,14 +1,52 @@
-import logging
+from groovi.cli.config import TrainConfig
+from groovi.graph.datasets import StaticDataset
+from groovi.gnn.models import EdgeClassificationModel
+from groovi.gnn.train_utils import train_and_validate, edge_classification_collate_fn
+from groovi.seq.constants import *
+from groovi.utils.utils import seed_everything, limit_cores
 
+from dgl.dataloading import GraphDataLoader
+import logging
+import os
+from torch.utils.tensorboard import SummaryWriter
+import torch
+from torch.utils.data import random_split
 
 def main(config_yaml):
     # ------ Initialization ------
-    # load the training configs
+    config = TrainConfig(config_yaml)
+    seed_everything(config.seed)
+    limit_cores(config.num_cores)
+
+    logging.info(f"Using seed {config.seed}")
+
     # ---------Data setup--------
-    # load graph handler
-    # load and label graphs
-    # setup dataset and dataloaders
-    # ---------Model--------
-    # initialize/load pretrained model
+    dataset = StaticDataset(config)
+    val_size = int(config.validation_ratio * len(dataset))
+    train_size = len(dataset) - val_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    train_dataloader = GraphDataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, collate_fn=edge_classification_collate_fn)
+    val_dataloader = GraphDataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=edge_classification_collate_fn)
+
+    logging.info(f"Training on {len(train_dataset)} graphs, validating on {len(val_dataset)} graphs.")
+
+    # ---------Model Setup--------
+    model = EdgeClassificationModel(
+        n_in_dim=len(NodeFeature),
+        h_dim=config.hidden_dim,
+        num_classes=len(SV_CLASSES),
+        num_rels=len(EdgeFeature),
+        update=config.update,
+        num_hidden_layers=config.num_hidden_layers,
+        normalize=config.normalize
+    )
+
+    # ---------Training Setup--------
+    tensorboard_writer = SummaryWriter(log_dir=config.log_dir)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
     # ------ Training process ------
-    pass
+    model = train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir)
+    torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_epoch_{config.num_epochs}.pth'))

@@ -5,6 +5,7 @@ from groovi.seq.signal_extraction import *
 
 from collections import deque
 import dgl
+import dgl.transforms as T
 import numpy as np
 import torch
 from typing import Any
@@ -28,19 +29,25 @@ class GrooviGraph:
         - vcf_path: str, path to the VCF file associated with this graph
         - chr_ids_included: np.ndarray of unique chromosome IDs included in the graph
     '''
-    def __init__(self, graph: dgl.DGLGraph, vcf_path: str = None):
+    def __init__(self, graph: dgl.DGLGraph):
         required_node_keys = ['feat', 'position', 'chr', 'HT']
         required_edge_keys = ['feat', 'rel_type', 'distance']
         assert all(key in graph.ndata for key in required_node_keys), f"Graph nodes must contain keys: {required_node_keys}"
         assert all(key in graph.edata for key in required_edge_keys), f"Graph edges must contain keys: {required_edge_keys}"
 
         self.graph: dgl.DGLGraph = graph
+        self.ndata = graph.ndata
+        self.edata = graph.edata
         self.candidate_src: torch.LongTensor = None
         self.candidate_dst: torch.LongTensor = None
         # labeling params
-        self.vcf_path: str = vcf_path
+        self.vcf_path: str = None
+
         # graph level annotations
         self.chr_ids_included: np.ndarray = None
+
+        # additional mappings
+        self.chr_int_to_str: dict[int, str] = None  # mapping from chromosome integer IDs (relative to reference used at construction) to string names
     
     def __repr__(self):
         return f"GrooviGraph(num_nodes={self.graph.num_nodes()}, num_edges={self.graph.num_edges()})"
@@ -148,19 +155,20 @@ class GrooviGraph:
         pairwise_depth = (g.ndata['feat'][v,rd_index] - g.ndata['feat'][u,rd_index]).unsqueeze(-1)
         rel_type = pd_edge_id*torch.ones((m,), dtype=torch.int64)
         g.add_edges(u, v, data={'feat' : pairwise_depth, 'rel_type': rel_type})
-        g.add_edges(v, u, data={'feat' : pairwise_depth, 'rel_type': rel_type})
 
         # add distance feature
         u, v, _ = g.edges(form='all')
         distances = torch.abs(g.ndata['position'][u] - g.ndata['position'][v])
         g.edata['distance'] = distances
 
-
-        # split by connected components, return
-        groovi_graph = GrooviGraph(g, vcf_path=config.vcf if hasattr(config, 'vcf') else None)
+        # object construction and annotations
+        groovi_graph = GrooviGraph(g)
         groovi_graph._set_chr_ids_included(np.unique(g.ndata['chr'].numpy())) #  record chromosomes included in connected components
         groovi_graph._set_candidate_edges(candidate_src, candidate_dst)
-        return GrooviGraph._split_by_components(groovi_graph)
+        groovi_graph._set_vcf_path(config.vcf if hasattr(config, 'vcf') else None)
+        groovi_graph._set_chr_int_to_str_conversion(signal_extractor.fai_index.get_tid_to_str_conversion())
+
+        return [groovi_graph]
 
     @staticmethod
     def _split_by_components(graph: 'GrooviGraph') -> list['GrooviGraph']:
@@ -204,6 +212,9 @@ class GrooviGraph:
     def _set_vcf_path(self, vcf_path: str):
         self.vcf_path = vcf_path
 
+    def _set_chr_int_to_str_conversion(self, chr_int_to_str: dict[int, str]):
+        self.chr_int_to_str = chr_int_to_str
+
     def get_candidate_edge_ids(self):
         assert self.candidate_src is not None and self.candidate_dst is not None, "Candidate edges are not set."
         return self.candidate_src, self.candidate_dst
@@ -216,7 +227,7 @@ class GrooviGraph:
     
     def get_chr_ids_included(self, as_string: bool = False) -> np.ndarray:
         if as_string:
-            return np.array2string(self.chr_ids_included, separator=',')
+            return np.array([self.chr_int_to_str[chr_id] for chr_id in self.chr_ids_included])
         return self.chr_ids_included
     
     def _set_chr_ids_included(self, chr_ids: np.ndarray):
@@ -238,6 +249,11 @@ class GrooviGraph:
     def out_edges(self, u: Any, form: str = 'all'):
         return self.graph.out_edges(u, form=form)
 
+    def get_chr_names_by_node_ids(self, node_ids: list[int]) -> list[str]:
+        chr_ids = self.graph.ndata['chr'][node_ids].numpy()
+        chr_names = [self.chr_int_to_str[chr_id] for chr_id in chr_ids]
+        return chr_names
+
     def get_subgraph(self, node_ids: list[int]) -> 'GrooviGraph':
         """Get a subgraph from the GrooviGraph."""
         dgl_subgraph = dgl.node_subgraph(self.graph, node_ids)
@@ -256,7 +272,16 @@ class GrooviGraph:
             unique_chr_ids = np.unique(self.graph.ndata['chr'][node_ids])
             groovi_subgraph._set_chr_ids_included(unique_chr_ids)
 
+        groovi_subgraph._set_chr_int_to_str_conversion(self.chr_int_to_str)
         return groovi_subgraph
+    
+    def apply_transforms(self, transform: T.BaseTransform) -> 'GrooviGraph':
+        """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""
+        transformed_graph = transform(self.graph)
+        self.graph = transformed_graph
+        self.ndata = transformed_graph.ndata
+        self.edata = transformed_graph.edata
+        return self
     
     # Internal Helper Functions
     def _remap_original_to_subgraph_ids(
