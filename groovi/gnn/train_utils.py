@@ -1,7 +1,8 @@
-import os
-import torch
 import dgl
+import os
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+import torch
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
 def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
     """
@@ -27,12 +28,12 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
         for epoch in range(num_epochs):
             # Validate
             if epoch % validation_interval == 0:
-                metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
-                for key, value in metrics.items():
+                logging_metrics, _ = validate_one_epoch(model, val_dataloader, loss_fn, device)
+                for key, value in logging_metrics.items():
                     tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
                 torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
                 
-                val_loss = metrics['AvgLoss']
+                val_loss = logging_metrics['AvgLoss']
                 progress.update(epoch_task, loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]")
 
             # Train
@@ -45,11 +46,14 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
 
 
     # ------ Final Steps ------
-    final_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
-    for key, value in final_metrics.items():
+    logging_metrics, misc_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
+    for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
+    
+    # TODO: use misc_metrics (e.g., confusion matrix) for visualization
     tensorboard_writer.close()
     return model
+
 def train_one_epoch(model, dataloader, optimizer, loss_fn, device) -> float:
     model.train()
     total_loss = 0
@@ -80,12 +84,21 @@ def validate_one_epoch(model, dataloader, loss_fn, device) -> dict:
             correct += (predicted == blabels).sum().item()
             total += blabels.size(0)
 
-    # TODO: collect metrics (accuracy, precision, recall, F1, etc)
-    metrics = {
+    # TODO: collect metrics
+    blabels, predicted = blabels.cpu().numpy(), predicted.cpu().numpy()
+
+    logging_metrics = {
         'AvgLoss': total_loss / len(dataloader),
-        'Accuracy': correct / total
+        'Accuracy': correct / total,
+        'Precision': precision_score(blabels, predicted),
+        'Recall': recall_score(blabels, predicted),
+        'F1': f1_score(blabels, predicted),
+        
     }
-    return metrics
+    misc_metrics = {
+        'ConfusionMatrix': confusion_matrix(blabels, predicted)
+    }
+    return logging_metrics, misc_metrics
 
 def edge_classification_collate_fn(batch_items):
     """
