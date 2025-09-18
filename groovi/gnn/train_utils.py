@@ -1,4 +1,5 @@
 import dgl
+import logging
 import os
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 import torch
@@ -28,7 +29,7 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
         for epoch in range(num_epochs):
             # Validate
             if epoch % validation_interval == 0:
-                logging_metrics, _ = validate_one_epoch(model, val_dataloader, loss_fn, device)
+                _ , logging_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
                 for key, value in logging_metrics.items():
                     tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
                 torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
@@ -46,9 +47,12 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
 
 
     # ------ Final Steps ------
-    logging_metrics, misc_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
+    all_metrics, logging_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
     for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
+    
+    for key, value in all_metrics.items():
+        logging.info(f"Final {key}: {value}")
     
     # TODO: use misc_metrics (e.g., confusion matrix) for visualization
     tensorboard_writer.close()
@@ -90,15 +94,22 @@ def validate_one_epoch(model, dataloader, loss_fn, device) -> dict:
     logging_metrics = {
         'AvgLoss': total_loss / len(dataloader),
         'Accuracy': correct / total,
-        'Precision': precision_score(blabels, predicted, zero_division=0), # avoid divide by zero error when no positive predictions
-        'Recall': recall_score(blabels, predicted, zero_division=0),
-        'F1': f1_score(blabels, predicted, zero_division=0),
-
+        # global metrics across all classes
+        'Precision': precision_score(blabels, predicted, average='micro', zero_division=0), 
+        'Recall': recall_score(blabels, predicted, average='micro', zero_division=0),
+        'F1': f1_score(blabels, predicted, average='micro', zero_division=0),
     }
+    
     misc_metrics = {
-        'ConfusionMatrix': confusion_matrix(blabels, predicted)
+        'ConfusionMatrix': confusion_matrix(blabels, predicted),
+        # global metrics separated by class
+        'Precision-by-class': precision_score(blabels, predicted, average=None, zero_division=0), 
+        'Recall-by-class': recall_score(blabels, predicted, average=None, zero_division=0),
+        'F1-by-class': f1_score(blabels, predicted, average=None, zero_division=0),
     }
-    return logging_metrics, misc_metrics
+
+    all_metrics = logging_metrics | misc_metrics
+    return all_metrics, logging_metrics 
 
 def edge_classification_collate_fn(batch_items):
     """
