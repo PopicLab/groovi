@@ -26,6 +26,7 @@ class StaticDataset(Dataset):
         self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
         self.graphs = [graph.apply_transforms(self.transforms) or graph for graph in self.graphs]
 
+        # optionally, post transformation visualization
         if config.graph_visualize_every > 0:
             logging.info(f"Visualizing every {config.graph_visualize_every} graphs to {config.img_dir}")
             for i, graph in enumerate(self.graphs):
@@ -34,13 +35,12 @@ class StaticDataset(Dataset):
                     visualize_groovi_graph(graph, path=save_path, node_feature_color_code=NodeFeature.RD, stagger_edges=True)
 
         # edge labeling 
-        self.dgl_graphs = [graph.get_dgl_graph() for graph in self.graphs]
-        for groovi_graph, dgl_graph in zip(self.graphs, self.dgl_graphs):
-            tree: VCF_KDTree = VCF_KDTree(groovi_graph.get_vcf_path())
+        for graph in self.graphs:
+            tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
             labels = []
-            for src, dst in zip(*groovi_graph.get_candidate_edge_ids()):
-                position1, position2 = dgl_graph.ndata['position'][src], dgl_graph.ndata['position'][dst]
-                chrom1, chrom2 = groovi_graph.get_chr_names_by_node_ids([dgl_graph.ndata['chr'][src].item(), dgl_graph.ndata['chr'][dst].item()])
+            for src, dst in zip(*graph.get_candidate_edge_ids()):
+                position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
+                chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
                 label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
                 labels.append(label)
 
@@ -49,7 +49,7 @@ class StaticDataset(Dataset):
 
     def __getitem__(self, index):
         groovi_graph = self.graphs[index]
-        dgl_graph = self.dgl_graphs[index]
+        dgl_graph = groovi_graph.get_dgl_graph()
         labels = self.labels[index]
         # TODO: what if transformation gets at the nodes? transform it here
         src, dst = groovi_graph.get_candidate_edge_ids()

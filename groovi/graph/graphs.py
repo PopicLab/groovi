@@ -36,6 +36,8 @@ class GrooviGraph:
         assert all(key in graph.edata for key in required_edge_keys), f"Graph edges must contain keys: {required_edge_keys}"
 
         self.graph: dgl.DGLGraph = graph
+        self.ndata = graph.ndata
+        self.edata = graph.edata
         self.candidate_src: torch.LongTensor = None
         self.candidate_dst: torch.LongTensor = None
         # labeling params
@@ -279,7 +281,7 @@ class GrooviGraph:
         transformed_graph = transform(self.graph)
         self.graph = transformed_graph
         return self
-
+    
     # Internal Helper Functions
     def _remap_original_to_subgraph_ids(
         self,
