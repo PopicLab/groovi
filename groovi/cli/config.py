@@ -73,19 +73,22 @@ class TrainConfig(Config):
             'normalize',
             # Initialization
             'seed',
-            'num_cores',
-            'logging'
+            'num_cores', # limiting dgl's cpu usage
+            'logging',
+            # misc
+            'graph_visualize_every', # post transformation visualization frequency
         ]
         self._validate_params()
 
         if self.device == 'cuda': assert torch.cuda.is_available()
 
         # data directories
-        self.data_dir = os.path.join(self.experiment_dir, 'data')
+        self.data_dir = os.path.join(self.experiment_dir, 'data') # misc data, ie labeling statistics
+        self.img_dir = os.path.join(self.experiment_dir, 'visuals') # plots, graph visualizations
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.log_dir = os.path.join(self.experiment_dir, 'runs', timestamp)
-        self.model_save_dir = os.path.join(self.experiment_dir, 'model')
-        [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.data_dir, self.log_dir, self.model_save_dir]]
+        self.log_dir = os.path.join(self.experiment_dir, 'runs', timestamp) # tensorboard logs
+        self.model_save_dir = os.path.join(self.experiment_dir, 'model') # model checkpoints
+        [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.data_dir, self.img_dir, self.log_dir, self.model_save_dir]]
 
 class CallConfig(Config):
     def __init__(self, config_yaml: str):

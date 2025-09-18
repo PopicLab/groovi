@@ -2,6 +2,7 @@ from groovi.cli.config import *
 from groovi.graph.graphs import GrooviGraph
 from groovi.graph.handler import GraphHandler
 from groovi.graph.transforms import TRANSFORMS
+from groovi.graph.visualize import visualize_groovi_graph
 from groovi.seq.labeling import VCF_KDTree
 from groovi.seq.constants import *
 
@@ -14,13 +15,26 @@ import numpy as np
 
 class StaticDataset(Dataset):
     def __init__(self, config):
+        super().__init__()
+
+        # initialize
         self.handler = GraphHandler(config)
-        self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
         self.graphs: list[GrooviGraph] = sum([self.handler.load(path) for path in config.graph_paths], [])
-        self.dgl_graphs: list[dgl.DGLGraph] = [self.transforms(graph.get_dgl_graph()) for graph in self.graphs]
         self.labels = []
 
-        # graph labeling
+        # apply transforms
+        self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
+        self.graphs = [graph.apply_transforms(self.transforms) or graph for graph in self.graphs]
+
+        if config.graph_visualize_every > 0:
+            logging.info(f"Visualizing every {config.graph_visualize_every} graphs to {config.img_dir}")
+            for i, graph in enumerate(self.graphs):
+                if i % config.graph_visualize_every == 0:
+                    save_path = os.path.join(config.img_dir, f'graph_vis_{i}.html')
+                    visualize_groovi_graph(graph, path=save_path, node_feature_color_code=NodeFeature.RD, stagger_edges=True)
+
+        # edge labeling 
+        self.dgl_graphs = [graph.get_dgl_graph() for graph in self.graphs]
         for groovi_graph, dgl_graph in zip(self.graphs, self.dgl_graphs):
             tree: VCF_KDTree = VCF_KDTree(groovi_graph.get_vcf_path())
             labels = []
