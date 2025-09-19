@@ -35,6 +35,7 @@ def main(config_yaml):
     model = EdgeClassificationModel(
         n_in_dim=len(NodeFeature),
         h_dim=config.hidden_dim,
+        ht_emb_dim=config.ht_emb_dim,
         num_classes=len(SV_CLASSES),
         num_rels=len(EdgeFeature),
         update=config.update,

@@ -1,4 +1,6 @@
 # nn modules
+from groovi.seq.constants import *
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -81,14 +83,17 @@ class RelGraphConvLayer(nn.Module):
             return h_updated
 
 class RelationalGraphConv(nn.Module):
-    def __init__(self, n_in_dim, h_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
+    def __init__(self, n_in_dim, h_dim, ht_emb_dim, num_rels, normalize, num_hidden_layers, update="WConcat"):
         super().__init__()
         self.normalize = normalize
-        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim, out_feat=h_dim, num_rels=num_rels, update=update)
+        self.ht_embedding = nn.Embedding(len(NodeType), ht_emb_dim) # 2 for head/tail
+        self.initial_layer = RelGraphConvLayer(n_in_feat=n_in_dim + ht_emb_dim, out_feat=h_dim, num_rels=num_rels, update=update)
         layers = [RelGraphConvLayer(h_dim, h_dim, num_rels, update=update) for _ in range(num_hidden_layers)]
         self.hidden_layers = nn.ModuleList(layers)
        
-    def forward(self, g, nfeat, mfeat, etypes):
+    def forward(self, g, nfeat, htfeat, mfeat, etypes):
+        ht_emb = self.ht_embedding(htfeat)
+        nfeat = torch.cat([nfeat, ht_emb], dim=-1)
         h = self.initial_layer(g, nfeat, mfeat, etypes=etypes.long()) # etypes expected to be of type long; 64 bit int
         h = F.leaky_relu(h)
         if self.normalize: h = F.normalize(h, dim=1) 

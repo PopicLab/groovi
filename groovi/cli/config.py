@@ -67,6 +67,7 @@ class TrainConfig(Config):
             'learning_rate',
             'device',
             # model specifications
+            'ht_emb_dim',
             'hidden_dim',
             'update',
             'num_hidden_layers',
