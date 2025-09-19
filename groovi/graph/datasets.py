@@ -13,6 +13,9 @@ from torch.utils.data import IterableDataset, Dataset
 from typing import Callable
 import numpy as np
 
+'''
+Static Datasets
+'''
 class StaticDataset(Dataset):
     def __init__(self, config):
         super().__init__()
@@ -21,7 +24,6 @@ class StaticDataset(Dataset):
         self.config = config
         self.handler = GraphHandler(config)
         self.graphs: list[GrooviGraph] = sum([self.handler.load(path) for path in config.graph_paths], [])
-        self.labels = []
 
         # apply transforms
         self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
@@ -35,38 +37,56 @@ class StaticDataset(Dataset):
                     save_path = os.path.join(config.img_dir, f'graph_vis_{i}.html')
                     visualize_groovi_graph(graph, path=save_path, node_feature_color_code=NodeFeature.RD, stagger_edges=True)
 
-        # edge labeling 
-        if config.task == 'edge_classification':
-            for graph in self.graphs:
-                tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
-                labels = []
-                for src, dst in zip(*graph.get_candidate_edge_ids()):
-                    position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
-                    chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
-                    label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
-                    labels.append(label)
-
-                labels = torch.tensor(labels, dtype=torch.long)
-                self.labels.append(labels)
-
-        elif config.task == 'graph_classification':
-            labels = torch.randint_like(torch.zeros(len(self.graphs)), low=0, high=10) # TODO: graph classification labeling
-
     def __getitem__(self, index):
-        groovi_graph = self.graphs[index]
-        dgl_graph = groovi_graph.get_dgl_graph()
-
-        if self.config.task == 'graph_classification':
-            graph_label = self.labels[index]
-            return dgl_graph, graph_label
-        
-        edge_labels = self.labels[index]
-        src, dst = groovi_graph.get_candidate_edge_ids()
-        return dgl_graph, src, dst, edge_labels
+        raise NotImplementedError("Please use StaticDatasetEdgeClassification or StaticDatasetGraphClassification.")
         
     def __len__(self):
         return len(self.graphs)
 
+class StaticDatasetEdgeClassification(StaticDataset):
+    def __init__(self, config):
+        super().__init__(config)
+
+        # edge labeling
+        self.labels = []
+        for graph in self.graphs:
+            tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
+            labels = []
+            for src, dst in zip(*graph.get_candidate_edge_ids()):
+                position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
+                chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
+                label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
+                labels.append(label)
+
+            labels = torch.tensor(labels, dtype=torch.long)
+            self.labels.append(labels)
+    
+    def __getitem__(self, index):
+        groovi_graph = self.graphs[index]
+        dgl_graph = groovi_graph.get_dgl_graph()
+        labels = self.labels[index]
+        src, dst = groovi_graph.get_candidate_edge_ids()
+        return dgl_graph, src, dst, labels
+
+class StaticDatasetGraphClassification(StaticDataset):
+    def __init__(self, config):
+        super().__init__(config)
+
+        # TODO: graph labeling
+        self.labels = torch.randint_like(torch.zeros(len(self.graphs)), low=0, high=10).long()
+
+    def __getitem__(self, index):
+        groovi_graph = self.graphs[index]
+        dgl_graph = groovi_graph.get_dgl_graph()
+        label = self.labels[index]
+        return dgl_graph, label
+    
+    def get_num_classes(self):
+        return torch.max(self.labels).item() + 1 # TODO: make dependent on labeling
+    
+'''
+Streaming Dataset(s)
+'''
 class StreamingDataset(IterableDataset):
     def __init__(self, config: Config, extraction_fn: Callable = None):
         super().__init__()
