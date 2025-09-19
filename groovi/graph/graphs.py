@@ -166,6 +166,7 @@ class GrooviGraph:
         groovi_graph._set_chr_ids_included(np.unique(g.ndata['chr'].numpy())) #  record chromosomes included in connected components
         groovi_graph._set_candidate_edges(candidate_src, candidate_dst)
         groovi_graph._set_vcf_path(config.vcf if hasattr(config, 'vcf') else None)
+        groovi_graph._set_info_path(config.info if hasattr(config, 'info') else None)
         groovi_graph._set_chr_int_to_str_conversion(signal_extractor.fai_index.get_tid_to_str_conversion())
 
         return [groovi_graph]
@@ -209,9 +210,15 @@ class GrooviGraph:
     def get_vcf_path(self):
         return self.vcf_path
 
+    def get_info_path(self):
+        return self.info_path
+
     def _set_vcf_path(self, vcf_path: str):
         self.vcf_path = vcf_path
 
+    def _set_info_path(self, info_path: str):
+        self.info_path = info_path
+    
     def _set_chr_int_to_str_conversion(self, chr_int_to_str: dict[int, str]):
         self.chr_int_to_str = chr_int_to_str
 

@@ -15,7 +15,7 @@ LOG_LEVELS = {
 }
 
 class Config:
-    def __init__(self, config_yaml: str, **kwargs):
+    def __init__(self, config_yaml: str):
         self.experiment_dir = str(Path(config_yaml).parent.resolve())
         with open(config_yaml, 'r') as file:
             config_data = yaml.safe_load(file)
@@ -106,6 +106,7 @@ class TrainGraphConfig(TrainConfig):
         self.enforced_params += [
             # additional model specifications
             'pooling',
+            'label_key',
         ]
         self._validate_params()
 

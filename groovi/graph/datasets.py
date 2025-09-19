@@ -4,6 +4,7 @@ from groovi.graph.handler import GraphHandler
 from groovi.graph.transforms import TRANSFORMS
 from groovi.graph.visualize import visualize_groovi_graph
 from groovi.seq.labeling import VCF_KDTree
+from groovi.seq.io import GenomeInfo
 from groovi.seq.constants import *
 
 import dgl
@@ -72,8 +73,25 @@ class StaticDatasetGraphClassification(StaticDataset):
     def __init__(self, config):
         super().__init__(config)
 
-        # TODO: graph labeling
-        self.labels = torch.randint_like(torch.zeros(len(self.graphs)), low=0, high=10).long()
+        label_key = config.label_key
+        label_to_int = {}
+        labels = []
+        self.num_classes = None
+        
+        for graph in self.graphs:
+            genome_info = GenomeInfo(graph.get_info_path())
+            label_value = genome_info.get_label(label_key)
+            
+            if self.num_classes is None:
+                self.num_classes = genome_info.config_data[label_key]['num_classes']
+            else:
+                assert self.num_classes == genome_info.config_data[label_key]['num_classes'], f"Number of classes for label '{label_key}' inconsistent across graphs."
+
+            if label_value not in label_to_int:
+                label_to_int[label_value] = len(label_to_int)
+            labels.append(label_to_int[label_value])
+
+        self.labels = torch.tensor(labels, dtype=torch.long)
 
     def __getitem__(self, index):
         groovi_graph = self.graphs[index]
@@ -82,7 +100,7 @@ class StaticDatasetGraphClassification(StaticDataset):
         return dgl_graph, label
     
     def get_num_classes(self):
-        return torch.max(self.labels).item() + 1 # TODO: make dependent on labeling
+        return torch.max(self.labels).item() + 1
     
 '''
 Streaming Dataset(s)
