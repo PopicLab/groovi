@@ -18,6 +18,7 @@ class StaticDataset(Dataset):
         super().__init__()
 
         # initialize
+        self.config = config
         self.handler = GraphHandler(config)
         self.graphs: list[GrooviGraph] = sum([self.handler.load(path) for path in config.graph_paths], [])
         self.labels = []
@@ -35,26 +36,34 @@ class StaticDataset(Dataset):
                     visualize_groovi_graph(graph, path=save_path, node_feature_color_code=NodeFeature.RD, stagger_edges=True)
 
         # edge labeling 
-        for graph in self.graphs:
-            tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
-            labels = []
-            for src, dst in zip(*graph.get_candidate_edge_ids()):
-                position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
-                chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
-                label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
-                labels.append(label)
+        if config.task == 'edge_classification':
+            for graph in self.graphs:
+                tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
+                labels = []
+                for src, dst in zip(*graph.get_candidate_edge_ids()):
+                    position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
+                    chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
+                    label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
+                    labels.append(label)
 
-            labels = torch.tensor(labels, dtype=torch.long)
-            self.labels.append(labels)
+                labels = torch.tensor(labels, dtype=torch.long)
+                self.labels.append(labels)
+
+        elif config.task == 'graph_classification':
+            labels = torch.randint_like(torch.zeros(len(self.graphs)), low=0, high=10) # TODO: graph classification labeling
 
     def __getitem__(self, index):
         groovi_graph = self.graphs[index]
         dgl_graph = groovi_graph.get_dgl_graph()
-        labels = self.labels[index]
-        # TODO: what if transformation gets at the nodes? transform it here
+
+        if self.config.task == 'graph_classification':
+            graph_label = self.labels[index]
+            return dgl_graph, graph_label
+        
+        edge_labels = self.labels[index]
         src, dst = groovi_graph.get_candidate_edge_ids()
-        return dgl_graph, src, dst, labels
-    
+        return dgl_graph, src, dst, edge_labels
+        
     def __len__(self):
         return len(self.graphs)
 

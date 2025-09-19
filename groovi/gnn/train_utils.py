@@ -5,7 +5,10 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, Ti
 import torch
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
-def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
+'''
+Edge Classification Training Utilities
+'''
+def train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
     """
     Trains and validates a model with rich progress bars, including the current epoch number.
     """
@@ -29,7 +32,7 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
         for epoch in range(num_epochs):
             # Validate
             if epoch % validation_interval == 0:
-                _ , logging_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
+                _ , logging_metrics = validate_one_epoch_edge_classification(model, val_dataloader, loss_fn, device)
                 for key, value in logging_metrics.items():
                     tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
                 torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
@@ -38,7 +41,7 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
                 progress.update(epoch_task, loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]")
 
             # Train
-            train_loss = train_one_epoch(model, train_dataloader, optimizer, loss_fn, device)
+            train_loss = train_one_epoch_edge_classification(model, train_dataloader, optimizer, loss_fn, device)
             progress.update(epoch_task, 
                             advance=1, 
                             description=f"[green]Training Epoch {epoch + 1}/{num_epochs}[/green]",
@@ -47,7 +50,7 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
 
 
     # ------ Final Steps ------
-    all_metrics, logging_metrics = validate_one_epoch(model, val_dataloader, loss_fn, device)
+    all_metrics, logging_metrics = validate_one_epoch_edge_classification(model, val_dataloader, loss_fn, device)
     for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
     
@@ -58,7 +61,7 @@ def train_and_validate(model, train_dataloader, val_dataloader, optimizer, loss_
     tensorboard_writer.close()
     return model
 
-def train_one_epoch(model, dataloader, optimizer, loss_fn, device) -> float:
+def train_one_epoch_edge_classification(model, dataloader, optimizer, loss_fn, device) -> float:
     model.train()
     total_loss = 0
     for bg, bsrc, bdst, blabels in dataloader:
@@ -72,7 +75,7 @@ def train_one_epoch(model, dataloader, optimizer, loss_fn, device) -> float:
 
     return total_loss / len(dataloader)
 
-def validate_one_epoch(model, dataloader, loss_fn, device) -> dict:
+def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device) -> dict:
     model.eval()
 
     total_loss = 0
@@ -152,3 +155,104 @@ def edge_classification_collate_fn(batch_items):
     batched_dst_ids = torch.cat(adjusted_dst_ids, dim=0)
 
     return batched_graph, batched_src_ids, batched_dst_ids, batched_labels
+
+'''
+Graph Classification Training Utilities
+'''
+def train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
+    """
+    Trains and validates a model with rich progress bars, including the current epoch number.
+    """
+    model = model.to(device)
+
+    # Define the rich progress bar for the main training epochs
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeElapsedColumn(),
+        "|",
+        TimeRemainingColumn(),
+        "|",
+        TextColumn("[progress.description]{task.fields[loss]}"),
+    ) as progress:
+        # Create a task for the main epoch loop
+        epoch_task = progress.add_task("[green]Training...", total=num_epochs, loss="N/A")
+
+        train_loss, val_loss = 0.0, 0.0
+        for epoch in range(num_epochs):
+            # Validate
+            if epoch % validation_interval == 0:
+                _ , logging_metrics = validate_one_epoch_graph_classification(model, val_dataloader, loss_fn, device)
+                for key, value in logging_metrics.items():
+                    tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
+                torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
+                
+                val_loss = logging_metrics['AvgLoss']
+                progress.update(epoch_task, loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]")
+
+            # Train
+            train_loss = train_one_epoch_graph_classification(model, train_dataloader, optimizer, loss_fn, device)
+            progress.update(epoch_task, 
+                            advance=1, 
+                            description=f"[green]Training Epoch {epoch + 1}/{num_epochs}[/green]",
+                            loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]")
+            tensorboard_writer.add_scalar('Train/AvgLoss', train_loss, epoch)
+
+
+    # ------ Final Steps ------
+    all_metrics, logging_metrics = validate_one_epoch_graph_classification(model, val_dataloader, loss_fn, device)
+    for key, value in logging_metrics.items():
+        tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
+    
+    for key, value in all_metrics.items():
+        logging.info(f"Final {key}: {value}")
+    return model
+
+def train_one_epoch_graph_classification(model, dataloader, optimizer, loss_fn, device) -> float:
+    model.train()
+    total_loss = 0
+    for bg, blabels in dataloader:
+        bg, blabels = bg.to(device), blabels.to(device)
+        optimizer.zero_grad()
+        logits = model(bg)
+        loss = loss_fn(logits, blabels)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    return total_loss / len(dataloader)
+
+def validate_one_epoch_graph_classification(model, dataloader, loss_fn, device) -> dict:
+    model.eval()
+
+    total_loss = 0
+    correct, total = 0, 0
+
+    with torch.no_grad():
+        for bg, blabels in dataloader:
+            bg, blabels = bg.to(device), blabels.to(device)
+            logits = model(bg)
+            loss = loss_fn(logits, blabels)
+            total_loss += loss.item()
+            _, predicted = torch.max(logits, dim=1)
+            correct += (predicted == blabels).sum().item()
+            total += blabels.size(0)
+
+    logging_metrics = {
+        'AvgLoss': total_loss / len(dataloader),
+        'Accuracy': correct / total,
+        'Precision': precision_score(blabels, predicted, average='micro', zero_division=0),
+        'Recall': recall_score(blabels, predicted, average='micro', zero_division=0),
+        'F1': f1_score(blabels, predicted, average='micro', zero_division=0),
+        # TODO: ...add more metrics if necessary
+    }
+
+    misc_metrics = {
+        # TODO: add more metrics if necessary
+        'ConfusionMatrix': confusion_matrix(blabels, predicted),
+    }
+
+    all_metrics = logging_metrics | misc_metrics
+    return all_metrics, logging_metrics
+

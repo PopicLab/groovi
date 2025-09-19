@@ -102,3 +102,20 @@ class RelationalGraphConv(nn.Module):
             h = F.leaky_relu(h)
             if self.normalize: h = F.normalize(h, dim=1)
         return h
+    
+class MLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=3, dropout=0.1):
+        super().__init__()
+        layers = []
+        for i in range(num_layers):
+            in_dim = input_dim if i == 0 else hidden_dim
+            out_dim = output_dim if i == num_layers - 1 else hidden_dim
+            layers.append(nn.Linear(in_dim, out_dim))
+            if i != num_layers - 1:
+                layers.append(nn.ReLU())
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.mlp(x)
