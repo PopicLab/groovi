@@ -53,5 +53,6 @@ def main(config_yaml):
     model, metrics = train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir)
     torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_graph_classification_epoch_{config.num_epochs}.pth'))
 
+    logging.info("===Training complete: Summary Statistics===")
     for key, value in metrics.items():
         logging.info(f"Final {key}: {value}")

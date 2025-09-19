@@ -91,6 +91,25 @@ class TrainConfig(Config):
         self.model_save_dir = os.path.join(self.experiment_dir, 'model') # model checkpoints
         [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.data_dir, self.img_dir, self.log_dir, self.model_save_dir]]
 
+class TrainEdgeConfig(TrainConfig):
+    def __init__(self, config_yaml: str):
+        super().__init__(config_yaml)
+        self.enforced_params += [
+            # ...
+        ]
+        self._validate_params()
+
+class TrainGraphConfig(TrainConfig):
+    def __init__(self, config_yaml: str):
+        super().__init__(config_yaml)
+        # ... Fill
+        self.enforced_params += [
+            # additional model specifications
+            'pooling',
+        ]
+        self._validate_params()
+
+
 class CallConfig(Config):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
