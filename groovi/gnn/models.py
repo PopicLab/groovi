@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 
 class GraphPoolModel(nn.Module):
-    def __init__(self, n_in_dim, n_dim, ht_emb_dim, num_rels, update="WConcat", pooling='sum', num_hidden_layers=6, normalize=False):
+    def __init__(self, n_in_dim, h_dim, ht_emb_dim, num_rels, update="WConcat", pooling='sum', num_hidden_layers=6, normalize=False):
         super().__init__()
-        self.conv = RelationalGraphConv(n_in_dim=n_in_dim, h_dim=n_dim, ht_emb_dim=ht_emb_dim, num_rels=num_rels, num_hidden_layers=num_hidden_layers, update=update, normalize=normalize)
+        self.conv = RelationalGraphConv(n_in_dim=n_in_dim, h_dim=h_dim, ht_emb_dim=ht_emb_dim, num_rels=num_rels, num_hidden_layers=num_hidden_layers, update=update, normalize=normalize)
         if pooling == 'sum':
             self.pool = SumPooling()
         elif pooling == 'avg':
