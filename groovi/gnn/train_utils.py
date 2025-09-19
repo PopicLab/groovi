@@ -3,12 +3,13 @@ import logging
 import os
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 import torch
+from typing import Tuple
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
 '''
 Edge Classification Training Utilities
 '''
-def train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
+def train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> Tuple[torch.nn.Module, dict]:
     """
     Trains and validates a model with rich progress bars, including the current epoch number.
     """
@@ -54,12 +55,9 @@ def train_and_validate_edge_classification(model, train_dataloader, val_dataload
     for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
     
-    for key, value in all_metrics.items():
-        logging.info(f"Final {key}: {value}")
-    
     # TODO: use misc_metrics (e.g., confusion matrix) for visualization
     tensorboard_writer.close()
-    return model
+    return model, all_metrics
 
 def train_one_epoch_edge_classification(model, dataloader, optimizer, loss_fn, device) -> float:
     model.train()
@@ -79,36 +77,42 @@ def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device) -
     model.eval()
 
     total_loss = 0
-    correct, total = 0, 0
 
+    labels, predicted = [], []
     with torch.no_grad():
         for bg, bsrc, bdst, blabels in dataloader:
             bg, bsrc, bdst, blabels = bg.to(device), bsrc.to(device), bdst.to(device), blabels.to(device)
             logits = model(bg, bsrc, bdst)
             loss = loss_fn(logits, blabels)
             total_loss += loss.item()
-            _, predicted = torch.max(logits, dim=1)
-            correct += (predicted == blabels).sum().item()
-            total += blabels.size(0)
+            _, bpredicted = torch.max(logits, dim=1)
+            
+            labels.append(blabels)
+            predicted.append(bpredicted)
+
+            
 
     # TODO: collect metrics
-    blabels, predicted = blabels.cpu().numpy(), predicted.cpu().numpy()
+    labels = torch.cat(labels, dim=0).cpu()
+    predicted = torch.cat(predicted, dim=0).cpu()
+    correct = (predicted == labels).sum().item()
+    total = labels.size(0)
 
     logging_metrics = {
         'AvgLoss': total_loss / len(dataloader),
         'Accuracy': correct / total,
         # global metrics across all classes
-        'Precision': precision_score(blabels, predicted, average='micro', zero_division=0), 
-        'Recall': recall_score(blabels, predicted, average='micro', zero_division=0),
-        'F1': f1_score(blabels, predicted, average='micro', zero_division=0),
+        'Precision': precision_score(labels, predicted, average='micro', zero_division=0), 
+        'Recall': recall_score(labels, predicted, average='micro', zero_division=0),
+        'F1': f1_score(labels, predicted, average='micro', zero_division=0),
     }
     
     misc_metrics = {
-        'ConfusionMatrix': confusion_matrix(blabels, predicted),
+        'ConfusionMatrix': confusion_matrix(labels, predicted),
         # global metrics separated by class
-        'Precision-by-class': precision_score(blabels, predicted, average=None, zero_division=0), 
-        'Recall-by-class': recall_score(blabels, predicted, average=None, zero_division=0),
-        'F1-by-class': f1_score(blabels, predicted, average=None, zero_division=0),
+        'Precision-by-class': precision_score(labels, predicted, average=None, zero_division=0), 
+        'Recall-by-class': recall_score(labels, predicted, average=None, zero_division=0),
+        'F1-by-class': f1_score(labels, predicted, average=None, zero_division=0),
     }
 
     all_metrics = logging_metrics | misc_metrics
@@ -159,7 +163,7 @@ def edge_classification_collate_fn(batch_items):
 '''
 Graph Classification Training Utilities
 '''
-def train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> torch.nn.Module:
+def train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> Tuple[torch.nn.Module, dict]:
     """
     Trains and validates a model with rich progress bars, including the current epoch number.
     """
@@ -205,9 +209,7 @@ def train_and_validate_graph_classification(model, train_dataloader, val_dataloa
     for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
     
-    for key, value in all_metrics.items():
-        logging.info(f"Final {key}: {value}")
-    return model
+    return model, all_metrics
 
 def train_one_epoch_graph_classification(model, dataloader, optimizer, loss_fn, device) -> float:
     model.train()
@@ -227,30 +229,36 @@ def validate_one_epoch_graph_classification(model, dataloader, loss_fn, device) 
     model.eval()
 
     total_loss = 0
-    correct, total = 0, 0
 
+    labels, predicted = [], []
     with torch.no_grad():
         for bg, blabels in dataloader:
             bg, blabels = bg.to(device), blabels.to(device)
             logits = model(bg)
             loss = loss_fn(logits, blabels)
             total_loss += loss.item()
-            _, predicted = torch.max(logits, dim=1)
-            correct += (predicted == blabels).sum().item()
-            total += blabels.size(0)
+            _, bpredicted = torch.max(logits, dim=1)
+            
+            labels.append(blabels)
+            predicted.append(bpredicted)
+    
+    labels = torch.cat(labels, dim=0).cpu()
+    predicted = torch.cat(predicted, dim=0).cpu()
+    correct = (predicted == labels).sum().item()
+    total = labels.size(0)
 
     logging_metrics = {
         'AvgLoss': total_loss / len(dataloader),
         'Accuracy': correct / total,
-        'Precision': precision_score(blabels, predicted, average='micro', zero_division=0),
-        'Recall': recall_score(blabels, predicted, average='micro', zero_division=0),
-        'F1': f1_score(blabels, predicted, average='micro', zero_division=0),
+        'Precision': precision_score(labels, predicted, average='micro', zero_division=0),
+        'Recall': recall_score(labels, predicted, average='micro', zero_division=0),
+        'F1': f1_score(labels, predicted, average='micro', zero_division=0),
         # TODO: ...add more metrics if necessary
     }
 
     misc_metrics = {
         # TODO: add more metrics if necessary
-        'ConfusionMatrix': confusion_matrix(blabels, predicted),
+        'ConfusionMatrix': confusion_matrix(labels, predicted),
     }
 
     all_metrics = logging_metrics | misc_metrics
