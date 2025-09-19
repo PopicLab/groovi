@@ -1,7 +1,7 @@
 from groovi.cli.config import TrainEdgeConfig
 from groovi.graph.datasets import StaticDatasetEdgeClassification
 from groovi.gnn.models import EdgeClassificationModel
-from groovi.gnn.train_utils import train_and_validate_edge_classification, edge_classification_collate_fn
+from groovi.gnn.train_utils import train_and_validate_edge_classification, edge_classification_collate_fn, log_validation_metrics
 from groovi.seq.constants import *
 from groovi.utils.utils import seed_everything, limit_cores
 
@@ -19,6 +19,8 @@ def main(config_yaml):
     limit_cores(config.num_cores)
 
     logging.info(f"Using seed {config.seed}")
+    logging.info(f"Logging to {config.log_file}")
+    logging.info(f'Using config from {config_yaml}, \n {config}')
 
     # ---------Data setup--------
     dataset = StaticDatasetEdgeClassification(config)
@@ -55,5 +57,5 @@ def main(config_yaml):
     torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_epoch_edge_classification_{config.num_epochs}.pth'))
 
     logging.info("===Training complete: Summary Statistics===")
-    for key, value in metrics.items():
-        logging.info(f"Final {key}: {value}")
+    all_metrics, _ = metrics
+    log_validation_metrics(config.num_epochs, None, all_metrics, None)

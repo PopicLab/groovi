@@ -12,4 +12,5 @@ def generate(config):
 
 def main(config_yaml):
     config = GenerateConfig(config_yaml)
+    logging.info(f'Using config from {config_yaml}, \n {config}')
     generate(config)

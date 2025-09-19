@@ -3,16 +3,9 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import sys
 import torch
 import yaml
-
-LOG_LEVELS = {
-    'DEBUG': logging.DEBUG,
-    'INFO': logging.INFO,
-    'WARNING': logging.WARNING,
-    'ERROR': logging.ERROR,
-    'CRITICAL': logging.CRITICAL
-}
 
 class Config:
     def __init__(self, config_yaml: str):
@@ -21,14 +14,23 @@ class Config:
             config_data = yaml.safe_load(file)
         self.__dict__.update(config_data)
         self.enforced_params = [] 
-        logging.basicConfig(level=LOG_LEVELS[self.logging], format='%(asctime)s - %(levelname)s - %(message)s')
+        
+        # setup logging
+        self.log_file = os.path.join(self.experiment_dir, 'main.log')
+        logging.basicConfig(
+            level=self.logging, format='%(asctime)s - %(levelname)s - %(message)s', 
+            handlers=[
+                logging.FileHandler(self.log_file, mode='w'),
+                logging.StreamHandler()
+            ],
+        )
 
     def _validate_params(self):
         for param_name in set(self.enforced_params): 
             assert hasattr(self, param_name), f"Parameter '{param_name}' is missing in the configuration"
     
     def __repr__(self):
-        return '\n'.join(f"{key}: {value}" for key, value in self.__dict__.items() if not key.startswith('_'))
+        return '\n'.join(f"\t {key}: {value}" for key, value in self.__dict__.items() if not key.startswith('_'))
 
 class GenerateConfig(Config):
     def __init__(self, config_yaml: str):
