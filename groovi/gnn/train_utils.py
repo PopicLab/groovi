@@ -9,7 +9,7 @@ from sklearn.metrics import precision_score, recall_score, f1_score, confusion_m
 '''
 Edge Classification Training Utilities
 '''
-def train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> Tuple[torch.nn.Module, dict]:
+def train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path, unique_labels) -> Tuple[torch.nn.Module, dict]:
     """
     Trains and validates a model with rich progress bars, including the current epoch number.
     """
@@ -33,7 +33,7 @@ def train_and_validate_edge_classification(model, train_dataloader, val_dataload
         for epoch in range(num_epochs):
             # Validate
             if epoch % validation_interval == 0:
-                _ , logging_metrics = validate_one_epoch_edge_classification(model, val_dataloader, loss_fn, device)
+                _ , logging_metrics = validate_one_epoch_edge_classification(model, val_dataloader, loss_fn, device, unique_labels)
                 for key, value in logging_metrics.items():
                     tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
                 torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
@@ -51,7 +51,7 @@ def train_and_validate_edge_classification(model, train_dataloader, val_dataload
 
 
     # ------ Final Steps ------
-    all_metrics, logging_metrics = validate_one_epoch_edge_classification(model, val_dataloader, loss_fn, device)
+    all_metrics, logging_metrics = validate_one_epoch_edge_classification(model, val_dataloader, loss_fn, device, unique_labels)
     for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
     
@@ -73,7 +73,7 @@ def train_one_epoch_edge_classification(model, dataloader, optimizer, loss_fn, d
 
     return total_loss / len(dataloader)
 
-def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device) -> dict:
+def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device, unique_labels) -> dict:
     model.eval()
 
     total_loss = 0
@@ -108,11 +108,11 @@ def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device) -
     }
     
     misc_metrics = {
-        'ConfusionMatrix': confusion_matrix(labels, predicted),
+        'ConfusionMatrix': confusion_matrix(labels, predicted, labels=unique_labels),
         # global metrics separated by class
-        'Precision-by-class': precision_score(labels, predicted, average=None, zero_division=0), 
-        'Recall-by-class': recall_score(labels, predicted, average=None, zero_division=0),
-        'F1-by-class': f1_score(labels, predicted, average=None, zero_division=0),
+        'Precision-by-class': precision_score(labels, predicted, average=None, zero_division=0, labels=unique_labels), 
+        'Recall-by-class': recall_score(labels, predicted, average=None, zero_division=0, labels=unique_labels),
+        'F1-by-class': f1_score(labels, predicted, average=None, zero_division=0, labels=unique_labels),
     }
 
     all_metrics = logging_metrics | misc_metrics
@@ -163,7 +163,7 @@ def edge_classification_collate_fn(batch_items):
 '''
 Graph Classification Training Utilities
 '''
-def train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path) -> Tuple[torch.nn.Module, dict]:
+def train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, device, num_epochs, validation_interval, tensorboard_writer, model_save_path, unique_labels) -> Tuple[torch.nn.Module, dict]:
     """
     Trains and validates a model with rich progress bars, including the current epoch number.
     """
@@ -187,7 +187,7 @@ def train_and_validate_graph_classification(model, train_dataloader, val_dataloa
         for epoch in range(num_epochs):
             # Validate
             if epoch % validation_interval == 0:
-                _ , logging_metrics = validate_one_epoch_graph_classification(model, val_dataloader, loss_fn, device)
+                _ , logging_metrics = validate_one_epoch_graph_classification(model, val_dataloader, loss_fn, device, unique_labels)
                 for key, value in logging_metrics.items():
                     tensorboard_writer.add_scalar(f'Validation/{key}', value, epoch)
                 torch.save(model.state_dict(), os.path.join(model_save_path, f'model_epoch_{epoch}.pth'))
@@ -205,7 +205,7 @@ def train_and_validate_graph_classification(model, train_dataloader, val_dataloa
 
 
     # ------ Final Steps ------
-    all_metrics, logging_metrics = validate_one_epoch_graph_classification(model, val_dataloader, loss_fn, device)
+    all_metrics, logging_metrics = validate_one_epoch_graph_classification(model, val_dataloader, loss_fn, device, unique_labels)
     for key, value in logging_metrics.items():
         tensorboard_writer.add_scalar(f'Final/{key}', value, num_epochs)
     
@@ -225,7 +225,7 @@ def train_one_epoch_graph_classification(model, dataloader, optimizer, loss_fn, 
 
     return total_loss / len(dataloader)
 
-def validate_one_epoch_graph_classification(model, dataloader, loss_fn, device) -> dict:
+def validate_one_epoch_graph_classification(model, dataloader, loss_fn, device, unique_labels) -> dict:
     model.eval()
 
     total_loss = 0
@@ -258,7 +258,10 @@ def validate_one_epoch_graph_classification(model, dataloader, loss_fn, device) 
 
     misc_metrics = {
         # TODO: add more metrics if necessary
-        'ConfusionMatrix': confusion_matrix(labels, predicted),
+        'ConfusionMatrix': confusion_matrix(labels, predicted, labels=unique_labels),
+        'Precision-by-class': precision_score(labels, predicted, average=None, zero_division=0, labels=unique_labels),
+        'Recall-by-class': recall_score(labels, predicted, average=None, zero_division=0, labels=unique_labels),
+        'F1-by-class': f1_score(labels, predicted, average=None, zero_division=0, labels=unique_labels),
     }
 
     all_metrics = logging_metrics | misc_metrics

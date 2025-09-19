@@ -29,6 +29,8 @@ def main(config_yaml):
     train_dataloader = GraphDataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     val_dataloader = GraphDataLoader(val_dataset, batch_size=config.batch_size, shuffle=False)
 
+    num_classes = dataset.get_num_classes()
+    unique_labels = list(range(num_classes))
     logging.info(f"Training on {len(train_dataset)} graphs, validating on {len(val_dataset)} graphs.")
 
     # ---------Model Setup--------
@@ -50,7 +52,7 @@ def main(config_yaml):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     # ------ Training process ------
-    model, metrics = train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir)
+    model, metrics = train_and_validate_graph_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir, unique_labels=unique_labels)
     torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_graph_classification_epoch_{config.num_epochs}.pth'))
 
     logging.info("===Training complete: Summary Statistics===")

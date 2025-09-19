@@ -29,6 +29,8 @@ def main(config_yaml):
     train_dataloader = GraphDataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, collate_fn=edge_classification_collate_fn)
     val_dataloader = GraphDataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=edge_classification_collate_fn)
 
+    num_classes = len(SV_CLASSES)
+    unique_labels = list(range(num_classes))
     logging.info(f"Training on {len(train_dataset)} graphs, validating on {len(val_dataset)} graphs.")
 
     # ---------Model Setup--------
@@ -36,7 +38,7 @@ def main(config_yaml):
         n_in_dim=len(NodeFeature),
         h_dim=config.hidden_dim,
         ht_emb_dim=config.ht_emb_dim,
-        num_classes=len(SV_CLASSES),
+        num_classes=num_classes,
         num_rels=len(EdgeFeature),
         update=config.update,
         num_hidden_layers=config.num_hidden_layers,
@@ -49,7 +51,7 @@ def main(config_yaml):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     # ------ Training process ------
-    model, metrics = train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir)
+    model, metrics = train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir, unique_labels=unique_labels)
     torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_epoch_edge_classification_{config.num_epochs}.pth'))
 
     logging.info("===Training complete: Summary Statistics===")
