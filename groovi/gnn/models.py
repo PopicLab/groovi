@@ -1,4 +1,4 @@
-from groovi.gnn.modules import RelGraphConvLayer, RelationalGraphConv, MLP
+from groovi.gnn.modules import RelGraphConvLayer, RelationalGraphConv, MLP, GlobalAttentionPooling
 from groovi.seq.constants import *
 
 import dgl
