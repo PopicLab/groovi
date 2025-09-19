@@ -81,7 +81,7 @@ class StaticDatasetGraphClassification(StaticDataset):
         for graph in self.graphs:
             genome_info = GenomeInfo(graph.get_info_path())
             label_value = genome_info.get_label(label_key)
-            
+
             if self.num_classes is None:
                 self.num_classes = genome_info.config_data[label_key]['num_classes']
             else:
@@ -100,7 +100,7 @@ class StaticDatasetGraphClassification(StaticDataset):
         return dgl_graph, label
     
     def get_num_classes(self):
-        return torch.max(self.labels).item() + 1
+        return self.num_classes
     
 '''
 Streaming Dataset(s)
