@@ -1,5 +1,5 @@
 from groovi.cli.config import TrainConfig
-from groovi.graph.datasets import StaticDataset
+from groovi.graph.datasets import StaticDatasetEdgeClassification
 from groovi.gnn.models import EdgeClassificationModel
 from groovi.gnn.train_utils import train_and_validate_edge_classification, edge_classification_collate_fn
 from groovi.seq.constants import *
@@ -21,7 +21,7 @@ def main(config_yaml):
     logging.info(f"Using seed {config.seed}")
 
     # ---------Data setup--------
-    dataset = StaticDataset(config)
+    dataset = StaticDatasetEdgeClassification(config)
     val_size = int(config.validation_ratio * len(dataset))
     train_size = len(dataset) - val_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -49,5 +49,8 @@ def main(config_yaml):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     # ------ Training process ------
-    model = train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir)
-    torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_epoch_{config.num_epochs}.pth'))
+    model, metrics = train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir)
+    torch.save(model.state_dict(), os.path.join(config.model_save_dir, f'model_epoch_edge_classification_{config.num_epochs}.pth'))
+
+    for key, value in metrics.items():
+        logging.info(f"Final {key}: {value}")
