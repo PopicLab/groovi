@@ -296,17 +296,15 @@ class GrooviGraph:
 
     def _remap_original_to_subgraph_ids(self, subgraph: dgl.DGLGraph, original_node_ids_to_remap: torch.Tensor) -> torch.Tensor:
         '''
-        maps node ids from the original graph to the subgraph node ids, primarily used for candidate edges
+        maps node ids from the original graph to the subgraph node ids, primarily used for remapping candidate edges ids when subgraphs are produced
         '''
         if dgl.NID not in subgraph.ndata:
-            raise ValueError(
-                "Subgraph must contain original node IDs (dgl.NID) in its ndata. "
-                "Ensure it was created with `relabel_nodes=True`"
-            )
+            raise ValueError("Subgraph must contain original node IDs (dgl.NID) in its ndata. ")
 
         # maps child graph ids to parentgraph ids
         child_to_parent_id_map = subgraph.ndata[dgl.NID] 
 
+        # map parent graph ids to child graph ids
         child_graph_num_nodes = child_to_parent_id_map.max().item() + 1
         parent_to_child_id_map = torch.full((child_graph_num_nodes,), -1, dtype=child_to_parent_id_map.dtype, device=subgraph.device)
         parent_to_child_id_map[child_to_parent_id_map] = torch.arange((len(child_to_parent_id_map)), dtype=child_to_parent_id_map.dtype, device=subgraph.device)
