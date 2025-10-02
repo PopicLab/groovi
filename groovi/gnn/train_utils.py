@@ -135,28 +135,25 @@ def edge_classification_collate_fn(batch_items):
     # Unzip the batch items
     graphs, src_ids_list, dst_ids_list, labels_list = zip(*batch_items)
 
-    # 1. Batch the DGL graphs using dgl.batch
+    # batch graphs
     batched_graph = dgl.batch(graphs)
 
-    # 2. Adjust src_ids and dst_ids for global indexing and concatenate labels
-    adjusted_src_ids = []
-    adjusted_dst_ids = []
-    batched_labels = torch.cat(labels_list, dim=0) # Labels just need concatenation
+    # batch edge ids
+    batched_src_ids = []
+    batched_dst_ids = []
 
-    current_node_offset = 0
+    node_offset = 0
 
-    # Iterate through the original graphs and their corresponding src/dst ID lists
     for i, g in enumerate(graphs):
-        # Apply the current node offset to local src_ids and dst_ids
-        adjusted_src_ids.append(src_ids_list[i] + current_node_offset)
-        adjusted_dst_ids.append(dst_ids_list[i] + current_node_offset)
+        batched_src_ids.append(src_ids_list[i] + node_offset)
+        batched_dst_ids.append(dst_ids_list[i] + node_offset)
+        node_offset += g.num_nodes()
 
-        # Update the offset for the next graph in the batch
-        current_node_offset += g.num_nodes() # Or batched_graph.batch_num_nodes()[i]
+    batched_src_ids = torch.cat(batched_src_ids, dim=0)
+    batched_dst_ids = torch.cat(batched_dst_ids, dim=0)
 
-    # Concatenate all adjusted source and destination IDs
-    batched_src_ids = torch.cat(adjusted_src_ids, dim=0)
-    batched_dst_ids = torch.cat(adjusted_dst_ids, dim=0)
+    # batch labels
+    batched_labels = torch.cat(labels_list, dim=0) 
 
     return batched_graph, batched_src_ids, batched_dst_ids, batched_labels
 
