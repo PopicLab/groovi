@@ -27,6 +27,7 @@ class GrooviGraph:
         - candidate_src: Tensor of shape (num_candidate_edges,) indicating source nodes of candidate edges
         - candidate_dst: Tensor of shape (num_candidate_edges,) indicating destination nodes of candidate edges
         - vcf_path: str, path to the VCF file associated with this graph
+        - info_path: str, path to the info file associated with this graph, intended for graph classification tasks, optional
         - chr_ids_included: np.ndarray of unique chromosome IDs included in the graph
     '''
     def __init__(self, graph: dgl.DGLGraph):
@@ -213,33 +214,14 @@ class GrooviGraph:
     def get_info_path(self):
         return self.info_path
 
-    def _set_vcf_path(self, vcf_path: str):
-        self.vcf_path = vcf_path
-
-    def _set_info_path(self, info_path: str):
-        self.info_path = info_path
-    
-    def _set_chr_int_to_str_conversion(self, chr_int_to_str: dict[int, str]):
-        self.chr_int_to_str = chr_int_to_str
-
     def get_candidate_edge_ids(self):
         assert self.candidate_src is not None and self.candidate_dst is not None, "Candidate edges are not set."
         return self.candidate_src, self.candidate_dst
-    
-    def _set_candidate_edges(self, src: torch.LongTensor, dst: torch.LongTensor):
-        assert src.shape == dst.shape, "Source and destination tensors must have the same shape."
-        assert src.dtype == torch.int64 and dst.dtype == torch.int64, "Source and destination tensors must be of type torch.int64."
-        self.candidate_src = src
-        self.candidate_dst = dst
     
     def get_chr_ids_included(self, as_string: bool = False) -> np.ndarray:
         if as_string:
             return np.array([self.chr_int_to_str[chr_id] for chr_id in self.chr_ids_included])
         return self.chr_ids_included
-    
-    def _set_chr_ids_included(self, chr_ids: np.ndarray):
-        assert isinstance(chr_ids, np.ndarray), "Chromosome IDs must be a numpy array."
-        self.chr_ids_included = chr_ids
     
     def nodes(self):
         return self.graph.nodes()
@@ -290,37 +272,47 @@ class GrooviGraph:
         self.edata = transformed_graph.edata
         return self
     
-    # Internal Helper Functions
-    def _remap_original_to_subgraph_ids(
-        self,
-        subgraph: dgl.DGLGraph,
-        original_node_ids_to_remap: torch.Tensor
-    ) -> torch.Tensor:
+    def _set_vcf_path(self, vcf_path: str):
+        self.vcf_path = vcf_path
+
+    def _set_info_path(self, info_path: str):
+        self.info_path = info_path
+
+    def _set_candidate_edges(self, src: torch.LongTensor, dst: torch.LongTensor):
+        assert src.shape == dst.shape, "Source and destination tensors must have the same shape."
+        assert src.dtype == torch.int64 and dst.dtype == torch.int64, "Source and destination tensors must be of type torch.int64."
+        self.candidate_src = src
+        self.candidate_dst = dst
+    
+    def _set_chr_int_to_str_conversion(self, chr_int_to_str: dict[int, str]):
+        '''
+        sets chr_int_to_str dict, a mapping from chromosome integer IDs (relative to reference used at construction) to chr string names
+        '''
+        self.chr_int_to_str = chr_int_to_str
+
+    def _set_chr_ids_included(self, chr_ids: np.ndarray):
+        assert isinstance(chr_ids, np.ndarray), "Chromosome IDs must be a numpy array."
+        self.chr_ids_included = chr_ids
+
+    def _remap_original_to_subgraph_ids(self, subgraph: dgl.DGLGraph, original_node_ids_to_remap: torch.Tensor) -> torch.Tensor:
+        '''
+        maps node ids from the original graph to the subgraph node ids, primarily used for candidate edges
+        '''
         if dgl.NID not in subgraph.ndata:
             raise ValueError(
                 "Subgraph must contain original node IDs (dgl.NID) in its ndata. "
                 "Ensure it was created with `relabel_nodes=True`"
             )
 
-        new_to_original_map = subgraph.ndata[dgl.NID]
+        # maps child graph ids to parentgraph ids
+        child_to_parent_id_map = subgraph.ndata[dgl.NID] 
 
-        max_original_id_in_subgraph = new_to_original_map.max().item()
-        original_to_subgraph_id_map = torch.full(
-            (max_original_id_in_subgraph + 1,), 
-            -1,                                  
-            dtype=new_to_original_map.dtype,     
-        )
+        child_graph_num_nodes = child_to_parent_id_map.max().item() + 1
+        parent_to_child_id_map = torch.full((child_graph_num_nodes,), -1, dtype=child_to_parent_id_map.dtype, device=subgraph.device)
+        parent_to_child_id_map[child_to_parent_id_map] = torch.arange((len(child_to_parent_id_map)), dtype=child_to_parent_id_map.dtype, device=subgraph.device)
 
-        original_to_subgraph_id_map[new_to_original_map] = torch.arange(
-            len(new_to_original_map),
-            dtype=new_to_original_map.dtype,
-            device=subgraph.device
-        )
-
-        remapped_ids = original_to_subgraph_id_map[original_node_ids_to_remap]
-
+        remapped_ids = parent_to_child_id_map[original_node_ids_to_remap]
         assert not (remapped_ids == -1).any(), "Some original node IDs were not found in the subgraph."
-
+        
         return remapped_ids
-    
-    
+
