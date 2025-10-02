@@ -126,7 +126,7 @@ class StreamingDataset(IterableDataset):
         if isinstance(self.config, GenerateConfig):
             graphs: list[GrooviGraph] = GrooviGraph.from_config(self.config)
             if self.config.split_by_connected_components:
-                graphs = sum([GrooviGraph._split_by_components(graph) for graph in graphs], [])
+                graphs = sum([GrooviGraph.split_by_components(graph) for graph in graphs], [])
             yield from self._graph_generator(graphs)
             logging.info(f"Generated and saving {len(graphs)} graphs.")
             self.handler.add_graphs(graphs)

@@ -173,7 +173,7 @@ class GrooviGraph:
         return [groovi_graph]
 
     @staticmethod
-    def _split_by_components(graph: 'GrooviGraph') -> list['GrooviGraph']:
+    def split_by_components(graph: 'GrooviGraph') -> list['GrooviGraph']:
         g = graph.get_dgl_graph()
         components: list[GrooviGraph] = []
         n = g.num_nodes()
