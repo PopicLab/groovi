@@ -54,7 +54,7 @@ class VCF_KDTree:
         coordinates = np.array([[rec.start, rec.stop] for rec in self.edges])
         self.kdtree = KDTree(coordinates)
 
-    def query_top_label(self, chrom: str, chrom_target: str, query: np.ndarray, k: int = 5) -> list[VCFRecord]:
+    def query_top_label(self, chrom: str, chrom_target: str, query: np.ndarray, k: int = 5, return_distance = False) -> list[VCFRecord]:
         # Query the KDTree for the top k records within a certain distance
         distances, indices = self.kdtree.query(query, k=k)
         # TODO ... other filters (OP type, head/tail, ...)
@@ -67,4 +67,7 @@ class VCF_KDTree:
         
         label = filtered_records[0].get_label()
 
+        if return_distance:
+            return label, distances[0]
+        
         return label

@@ -50,17 +50,27 @@ class StaticDatasetEdgeClassification(StaticDataset):
 
         # edge labeling
         self.labels = []
-        for graph in self.graphs:
+        self.distances = []
+        label_summary = ["Edge Labeling Summary:"]
+
+        for i, graph in enumerate(self.graphs):
             tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
             labels = []
+            distances = []
             for src, dst in zip(*graph.get_candidate_edge_ids()):
                 position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
                 chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
-                label = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5)
+                label, distance = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5, return_distance=True)
                 labels.append(label)
+                
+                label_summary.append(f"Graph {i}, Edge ({chrom1}:{position1}-{chrom2}:{position2}): Label {label}, Distance {distance}")
 
             labels = torch.tensor(labels, dtype=torch.long)
             self.labels.append(labels)
+            self.distances.append(distances)
+
+        with open(config.stats_path, 'w') as f:
+            f.write("\n".join(label_summary))
     
     def __getitem__(self, index):
         groovi_graph = self.graphs[index]

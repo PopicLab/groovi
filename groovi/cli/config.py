@@ -92,6 +92,8 @@ class TrainConfig(Config):
         self.log_dir = os.path.join(self.experiment_dir, 'runs', timestamp) # tensorboard logs
         self.model_save_dir = os.path.join(self.experiment_dir, 'model') # model checkpoints
         [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.data_dir, self.img_dir, self.log_dir, self.model_save_dir]]
+        self.stats_path = os.path.join(self.experiment_dir, 'stats.txt')
+
 
 class TrainEdgeConfig(TrainConfig):
     def __init__(self, config_yaml: str):
