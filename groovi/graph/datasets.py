@@ -23,6 +23,7 @@ class StaticDataset(Dataset):
 
         # initialize
         self.config = config
+        self.config = config
         self.handler = GraphHandler(config)
         self.graphs: list[GrooviGraph] = sum([self.handler.load(path) for path in config.graph_paths], [])
 

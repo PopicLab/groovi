@@ -3,6 +3,7 @@ from groovi.seq.constants import *
 
 import dgl
 from dgl.nn import SumPooling, AvgPooling, MaxPooling, GlobalAttentionPooling
+from dgl.nn import SumPooling, AvgPooling, MaxPooling, GlobalAttentionPooling
 import torch
 import torch.nn as nn
 

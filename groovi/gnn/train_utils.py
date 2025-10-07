@@ -90,8 +90,6 @@ def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device, u
             labels.append(blabels)
             predicted.append(bpredicted)
 
-            
-
     # TODO: collect metrics
     labels = torch.cat(labels, dim=0).cpu()
     predicted = torch.cat(predicted, dim=0).cpu()
@@ -156,6 +154,7 @@ def edge_classification_collate_fn(batch_items):
     batched_labels = torch.cat(labels_list, dim=0) 
 
     return batched_graph, batched_src_ids, batched_dst_ids, batched_labels
+
 
 '''
 Graph Classification Training Utilities
