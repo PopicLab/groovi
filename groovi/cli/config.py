@@ -3,32 +3,34 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import sys
 import torch
 import yaml
 
-LOG_LEVELS = {
-    'DEBUG': logging.DEBUG,
-    'INFO': logging.INFO,
-    'WARNING': logging.WARNING,
-    'ERROR': logging.ERROR,
-    'CRITICAL': logging.CRITICAL
-}
-
 class Config:
-    def __init__(self, config_yaml: str, **kwargs):
+    def __init__(self, config_yaml: str):
         self.experiment_dir = str(Path(config_yaml).parent.resolve())
         with open(config_yaml, 'r') as file:
             config_data = yaml.safe_load(file)
         self.__dict__.update(config_data)
         self.enforced_params = [] 
-        logging.basicConfig(level=LOG_LEVELS[self.logging], format='%(asctime)s - %(levelname)s - %(message)s')
+        
+        # setup logging
+        self.log_file = os.path.join(self.experiment_dir, 'main.log')
+        logging.basicConfig(
+            level=self.logging, format='%(asctime)s - %(levelname)s - %(message)s', 
+            handlers=[
+                logging.FileHandler(self.log_file, mode='w'),
+                logging.StreamHandler()
+            ],
+        )
 
     def _validate_params(self):
         for param_name in set(self.enforced_params): 
             assert hasattr(self, param_name), f"Parameter '{param_name}' is missing in the configuration"
     
     def __repr__(self):
-        return '\n'.join(f"{key}: {value}" for key, value in self.__dict__.items() if not key.startswith('_'))
+        return '\n'.join(f"\t {key}: {value}" for key, value in self.__dict__.items() if not key.startswith('_'))
 
 class GenerateConfig(Config):
     def __init__(self, config_yaml: str):
@@ -90,6 +92,28 @@ class TrainConfig(Config):
         self.log_dir = os.path.join(self.experiment_dir, 'runs', timestamp) # tensorboard logs
         self.model_save_dir = os.path.join(self.experiment_dir, 'model') # model checkpoints
         [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.data_dir, self.img_dir, self.log_dir, self.model_save_dir]]
+        self.stats_path = os.path.join(self.experiment_dir, 'stats.txt')
+
+
+class TrainEdgeConfig(TrainConfig):
+    def __init__(self, config_yaml: str):
+        super().__init__(config_yaml)
+        self.enforced_params += [
+            # ...
+        ]
+        self._validate_params()
+
+class TrainGraphConfig(TrainConfig):
+    def __init__(self, config_yaml: str):
+        super().__init__(config_yaml)
+        # ... Fill
+        self.enforced_params += [
+            # additional model specifications
+            'pooling',
+            'label_key',
+        ]
+        self._validate_params()
+
 
 class CallConfig(Config):
     def __init__(self, config_yaml: str):

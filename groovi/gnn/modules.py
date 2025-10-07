@@ -5,10 +5,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import dgl
+from dgl import sum_nodes, mean_nodes, softmax_nodes
 import dgl.function as fn
 from dgl.nn.pytorch.linear import TypedLinear
 
 # Adapted from https://www.dgl.ai/dgl_docs/en/2.4.x/_modules/dgl/nn/pytorch/conv/relgraphconv.html#RelGraphConv
+'''
+Graph convolutions
+'''
 class RelGraphConvLayer(nn.Module):
     def __init__(
         self,
@@ -102,3 +106,55 @@ class RelationalGraphConv(nn.Module):
             h = F.leaky_relu(h)
             if self.normalize: h = F.normalize(h, dim=1)
         return h
+    
+'''
+Global Pooling modules
+'''
+# from https://www.dgl.ai/dgl_docs/_modules/dgl/nn/pytorch/glob.html#GlobalAttentionPooling
+class GlobalAttentionPooling(nn.Module):
+    def __init__(self, gate_nn, feat_nn=None):
+        super(GlobalAttentionPooling, self).__init__()
+        self.gate_nn = gate_nn
+        self.feat_nn = feat_nn
+
+    def forward(self, graph, feat, get_attention=False):
+        with graph.local_scope():
+            gate = self.gate_nn(feat)
+            assert (
+                gate.shape[-1] == 1
+            ), "The output of gate_nn should have size 1 at the last axis."
+            feat = self.feat_nn(feat) if self.feat_nn else feat
+
+            graph.ndata["gate"] = gate
+            gate = softmax_nodes(graph, "gate")
+            graph.ndata.pop("gate")
+
+            graph.ndata["r"] = feat * gate
+            readout = sum_nodes(graph, "r")
+            graph.ndata.pop("r")
+
+            if get_attention:
+                return readout, gate
+            else:
+                return readout
+
+'''
+General modules
+'''
+class MLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=3, dropout=0.1):
+        super().__init__()
+        layers = []
+        for i in range(num_layers):
+            in_dim = input_dim if i == 0 else hidden_dim
+            out_dim = output_dim if i == num_layers - 1 else hidden_dim
+            layers.append(nn.Linear(in_dim, out_dim))
+            if i != num_layers - 1:
+                layers.append(nn.ReLU())
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.mlp(x)
+    
