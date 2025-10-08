@@ -13,7 +13,6 @@ def train_and_validate_edge_classification(model, train_dataloader, val_dataload
     """
     Trains and validates a model with rich progress bars, including the current epoch number.
     """
-    model = model.to(device)
 
     # Define the rich progress bar for the main training epochs
     with Progress(
@@ -73,7 +72,12 @@ def train_one_epoch_edge_classification(model, dataloader, optimizer, loss_fn, d
 
     return total_loss / len(dataloader)
 
-def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device, unique_labels) -> dict:
+def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device, unique_labels) -> tuple[dict, dict]:
+    '''
+    Returns a tuple of (all_metrics, logging_metrics)
+    all_metrics: dict of all metrics, including misc metrics like confusion matrix
+    logging_metrics: dict of metrics to log to tensorboard
+    '''
     model.eval()
 
     total_loss = 0
@@ -116,7 +120,7 @@ def validate_one_epoch_edge_classification(model, dataloader, loss_fn, device, u
     all_metrics = logging_metrics | misc_metrics
     return all_metrics, logging_metrics 
 
-def edge_classification_collate_fn(batch_items):
+def edge_classification_collate_fn(batch_items) -> tuple:
     """
     Custom collate_fn for DGL graphs with source node IDs, destination node IDs, and labels.
     Args:

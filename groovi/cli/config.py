@@ -95,13 +95,29 @@ class TrainConfig(Config):
         self.stats_path = os.path.join(self.experiment_dir, 'stats.txt')
 
 
-class TrainEdgeConfig(TrainConfig):
+class EvaluateConfig(Config):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
-        self.enforced_params += [
-            # ...
+        self.enforced_params = [
+            # data specifications
+            'graph_paths',
+            'transforms',
+            # model specifications
+            'ht_emb_dim',
+            'hidden_dim',
+            'update',
+            'num_hidden_layers',
+            'normalize',
+            'model_path',
+            # Initialization
+            'seed',
+            'num_cores', # limiting dgl's cpu usage
+            'logging',
         ]
         self._validate_params()
+        self.stats_path = os.path.join(self.experiment_dir, 'stats.txt')
+        self.img_dir = os.path.join(self.experiment_dir, 'visuals') # plots, graph visualizations
+        [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.img_dir]]
 
 class TrainGraphConfig(TrainConfig):
     def __init__(self, config_yaml: str):

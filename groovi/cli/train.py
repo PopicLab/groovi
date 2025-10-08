@@ -1,4 +1,4 @@
-from groovi.cli.config import TrainEdgeConfig
+from groovi.cli.config import TrainConfig
 from groovi.graph.datasets import StaticDatasetEdgeClassification
 from groovi.gnn.models import EdgeClassificationModel
 from groovi.gnn.train_utils import train_and_validate_edge_classification, edge_classification_collate_fn, log_validation_metrics
@@ -14,7 +14,7 @@ from torch.utils.data import random_split
 
 def main(config_yaml):
     # ------ Initialization ------
-    config = TrainEdgeConfig(config_yaml)
+    config = TrainConfig(config_yaml)
     seed_everything(config.seed)
     limit_cores(config.num_cores)
 
@@ -51,6 +51,7 @@ def main(config_yaml):
     tensorboard_writer = SummaryWriter(log_dir=config.log_dir)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
     loss_fn = torch.nn.CrossEntropyLoss()
+    model = model.to(device=config.device)
 
     # ------ Training process ------
     model, metrics = train_and_validate_edge_classification(model, train_dataloader, val_dataloader, optimizer, loss_fn, config.device, config.num_epochs, config.validation_interval, tensorboard_writer, config.model_save_dir, unique_labels=unique_labels)
