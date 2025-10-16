@@ -1,73 +1,66 @@
 from groovi.seq.constants import *
+from groovi.seq.constants import *
+from groovi.seq.intervals import GenomeInterval
 from groovi.seq.io import *
 
 import numpy as np
 from scipy.spatial import KDTree
+from pysam import VariantFile
 
-'''
-Groovi specific VCF processing, adaptable to future labeling needs
-'''
-class AdjRecord:
-    def __init__(self, vcf_record: VCFRecord):
-        self.vcf_record = vcf_record
-        self.start = vcf_record.start
-        self.stop = vcf_record.stop
+def get_intervals_from_VCF(vcf_path: str) -> list[GenomeInterval]:
+    '''
+    Convert a VCF file to a list of GenomeIntervals
 
-        # TODO: change depending on label
-        self.label = SV_CLASS_TO_ID_FN(vcf_record.get_sv_type())
+    Expects the following INFO fields:
+    - END: int, end position of the variant
+    - END_CHROM: str, target chromosome of the variant
+    - ORIENTATION: str, one of 'LR', 'RL', 'LL', '
+    '''
+    vcf_in = VariantFile(vcf_path)
+    intervals = []
+    for record in vcf_in.fetch():
+        source_chrom = record.chrom
+        start = record.start
+        sv_class = record.id
 
-    def get_start_pos(self):
-        return self.start
-    
-    def get_target_pos(self):
-        return self.stop
+        info = record.info
+        end = info['END']
+        target_chrom = info['END_CHROM']
+        orientation = Laterality(info['ORIENTATION'])
 
-    def get_start_chrom(self) -> str:
-        return self.vcf_record.chrom
+        interval = GenomeInterval(source_chrom, target_chrom, start, end, sv_class=sv_class, orientation=orientation)
+        intervals.append(interval)
 
-    def get_target_chrom(self) -> str:
-        return self.vcf_record.target_chrom
-
-    def get_label(self):
-        return self.label
-
-    def __repr__(self):
-        return f'AdjRecord({self.vcf_record.sv_id}, {self.vcf_record.chrom}:{self.start}-{self.stop}, {self.vcf_record.target_chrom}, {self.vcf_record.sv_type})'
-
-class AdjRecordContainer:
-    def __init__(self, vcf_record_container: VCFRecordContainer):
-        self.edges = []
-        for record in vcf_record_container.get_records():
-            edge_record = AdjRecord(record)
-            self.edges.append(edge_record)
-        
-    def get_adj_records(self):
-        return self.edges    
+    return intervals
     
 '''
 Structures for querying Groovi specific VCF Records
 '''
 class VCF_KDTree:
     def __init__(self, vcf_path: str):
-        edge_record_container = AdjRecordContainer(VCFRecordContainer(vcf_path))
-        self.edges = edge_record_container.get_adj_records()
-        coordinates = np.array([[rec.start, rec.stop] for rec in self.edges])
-        self.kdtree = KDTree(coordinates)
+        self.intervals = get_intervals_from_VCF(vcf_path)
+        self.positions = np.array([interval.get_positions() for interval in self.intervals])
+        self.kdtree = KDTree(self.positions)
 
-    def query_top_label(self, chrom: str, chrom_target: str, query: np.ndarray, k: int = 5, return_distance = False) -> list[VCFRecord]:
+    def query_top_label(self, chrom: str, chrom_target: str, query: np.ndarray, k: int = 5, expected_orientation = None, return_distance = False) -> list[VCFRecord]:
         # Query the KDTree for the top k records within a certain distance
         distances, indices = self.kdtree.query(query, k=k)
         # TODO ... other filters (OP type, head/tail, ...)
-        # ie indices = [i for i in indices if self.edges[i].get_start_chrom() == chrom and self.edges[i].get_target_chrom() == chrom_target]
-        filtered_records = [self.edges[i] for i in indices]
+        # Filter by chromosome
+        indices = [i for i in indices if self.intervals[i].source_chrom == chrom and self.intervals[i].target_chrom == chrom_target]
 
-        # TODO: handle no matches
-        if len(filtered_records) == 0:
-            raise ValueError("No matching records found in VCF for the given query.")
-        
-        label = filtered_records[0].get_label()
+        # Filter by orientation
+        if expected_orientation is not None:
+            indices = [i for i in indices if self.intervals[i].orientation == expected_orientation]
 
-        if return_distance:
-            return label, distances[0]
+        filtered_intervals = [self.intervals[i] for i in indices]
+
+        top_sv_label = 'NEG'
+        lowest_distance = float('inf')
+
+        if len(filtered_intervals) > 0:
+            top_sv_label = best_interval.sv_class
+            best_interval = filtered_intervals[0]
+            lowest_distance = distances[0]
         
-        return label
+        return (top_sv_label, lowest_distance) if return_distance else top_sv_label
