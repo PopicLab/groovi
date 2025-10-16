@@ -142,6 +142,7 @@ class GrooviGraph:
                 'rel_type': torch.tensor([edge_rel_id], dtype=torch.int64),
                 'feat': torch.tensor([[adj.evidence]], dtype=torch.float32),
             })
+
             candidate_src.append(src_node_id)
             candidate_dst.append(dst_node_id)
         candidate_src, candidate_dst = torch.tensor(candidate_src, dtype=torch.int64), torch.tensor(candidate_dst, dtype=torch.int64)
@@ -264,6 +265,21 @@ class GrooviGraph:
         groovi_subgraph._set_chr_int_to_str_conversion(self.chr_int_to_str)
         return groovi_subgraph
     
+    def get_laterality_by_node_ids(self, src, dst):
+        node_type_1, node_type_2 = ID_TO_NODE_TYPE[self.graph.ndata['HT'][src].item()], ID_TO_NODE_TYPE[self.graph.ndata['HT'][dst].item()]
+        if node_type_1 == NodeType.HEAD and node_type_2 == NodeType.HEAD:
+            return Laterality.RR
+        elif node_type_1 == NodeType.TAIL and node_type_2 == NodeType.TAIL:
+            return Laterality.LL
+        elif node_type_1 == NodeType.HEAD and node_type_2 == NodeType.TAIL:
+            return Laterality.RL
+        elif node_type_1 == NodeType.TAIL and node_type_2 == NodeType.HEAD:
+            return Laterality.LR
+        else:
+            raise ValueError(f"Unknown HEAD/TAIL combination: {node_type_1}, {node_type_2}")
+
+
+        
     def apply_transforms(self, transform: T.BaseTransform) -> 'GrooviGraph':
         """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""
         transformed_graph = transform(self.graph)

@@ -80,6 +80,9 @@ class NodeFeature(Enum):
 EDGE_FEATURE_TO_ID = {e_type: i for i, e_type in enumerate(EdgeFeature)}
 NODE_FEATURE_TO_ID = {feature: i for i, feature in enumerate(NodeFeature)}
 
+NODE_TYPE_TO_ID = {n_type: i for i, n_type in enumerate(NodeType)}
+ID_TO_NODE_TYPE = {i: n_type for n_type, i in NODE_TYPE_TO_ID.items()}
+
 ################################################
 # Visualization Constants
 ################################################

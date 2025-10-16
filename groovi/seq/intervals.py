@@ -1,7 +1,7 @@
 class GenomeInterval:
-    def __init__(self, source_chrom, target_chrom, start_pos, end_pos, **kwargs):
-        self.source_chrom = source_chrom
-        self.target_chrom = target_chrom
+    def __init__(self, start_chrom, end_chrom, start_pos, end_pos, **kwargs):
+        self.start_chrom = start_chrom
+        self.end_chrom = end_chrom
         self.start = start_pos
         self.end = end_pos
 
@@ -16,10 +16,10 @@ class GenomeInterval:
         return self.end
     
     def get_start_chrom(self):
-        return self.source_chrom
+        return self.start_chrom
     
     def get_target_chrom(self):
-        return self.target_chrom
+        return self.end_chrom
 
     def __len__(self):
         return self.end - self.start + 1
