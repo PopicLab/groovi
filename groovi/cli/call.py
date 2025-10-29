@@ -14,7 +14,6 @@ from dgl.dataloading import GraphDataLoader
 import logging
 import torch
 
-
 def main(config_yaml):
     # ------ Initialization ------
     config = CallConfig(config_yaml)
@@ -60,20 +59,22 @@ def main(config_yaml):
     predicted_class_names = [SV_CLASSES[class_id] for class_id in predicted_class_ids]
 
     # ------ Flatten graph information, align with predictions ---------
+    SV_Prediction = namedtuple('SV_Prediction', ['start_chrom', 'end_chrom', 'start_pos', 'end_pos', 'pred'])
+
     flattened_chr_starts = []
     flattened_chr_ends = []
     flattened_pos_starts = []
     flattened_pos_ends = []
     for graph in dataset:
-        start_chrs, end_chrs, pos_starts, pos_ends = graph.decompose()
+        start_chrs, end_chrs, pos_starts, pos_ends = graph.get_candidate_info()
         flattened_chr_starts.extend(start_chrs)
         flattened_chr_ends.extend(end_chrs)
         flattened_pos_starts.extend(pos_starts)
         flattened_pos_ends.extend(pos_ends)
 
     out = [
-        item
-        for item in zip(
+        SV_Prediction(*args)
+        for args in zip(
             flattened_chr_starts,
             flattened_chr_ends,
             flattened_pos_starts,

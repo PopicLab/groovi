@@ -346,7 +346,7 @@ class GrooviGraph:
                 f"Unknown HEAD/TAIL combination: {node_type_1}, {node_type_2}"
             )
 
-    def decompose(self) -> tuple:
+    def get_candidate_info(self) -> tuple:
         candidate_src, candidate_dst = self.get_candidate_edges()
         start_chr_names = self.get_chr_names_by_node_ids(candidate_src)
         end_chr_names = self.get_chr_names_by_node_ids(candidate_dst)
