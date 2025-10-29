@@ -273,7 +273,10 @@ def inference_collate_fn(groovi_graphs: list[GrooviGraph]) -> tuple:
     Custom collate_fn for groovi graphs
     """
     # Unzip the batch items
-    batch_items = [((groovi_graph.get_dgl_graph(),) + groovi_graph.get_candidate_edges()) for groovi_graph in groovi_graphs]
+    batch_items = [
+        ((groovi_graph.get_dgl_graph(),) + groovi_graph.get_candidate_edges())
+        for groovi_graph in groovi_graphs
+    ]
     graphs, src_ids_list, dst_ids_list = zip(*batch_items)
 
     # batch graphs

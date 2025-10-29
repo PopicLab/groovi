@@ -10,8 +10,9 @@ import numpy as np
 import torch
 from typing import Any
 
+
 class GrooviGraph:
-    '''
+    """
     A Groovi Graph must have the following fields in dgl graph g.
     Node features (g.ndata):
         - 'feat': Tensor of shape (num_nodes, num_node_features)
@@ -22,19 +23,24 @@ class GrooviGraph:
         - 'feat': Tensor of shape (num_edges, num_edge_features)
         - 'rel_type': Tensor of shape (num_edges,) indicating the type of each edge
         - 'distance': Tensor of shape (num_edges,) indicating the genomic distance between connected nodes
-    
+
     Additional attributes:
         - candidate_src: Tensor of shape (num_candidate_edges,) indicating source nodes of candidate edges
         - candidate_dst: Tensor of shape (num_candidate_edges,) indicating destination nodes of candidate edges
         - vcf_path: str, path to the VCF file associated with this graph
         - info_path: str, path to the info file associated with this graph, intended for graph classification tasks, optional
         - chr_ids_included: np.ndarray of unique chromosome IDs included in the graph
-    '''
+    """
+
     def __init__(self, graph: dgl.DGLGraph):
-        required_node_keys = ['feat', 'position', 'chr', 'HT']
-        required_edge_keys = ['feat', 'rel_type', 'distance']
-        assert all(key in graph.ndata for key in required_node_keys), f"Graph nodes must contain keys: {required_node_keys}"
-        assert all(key in graph.edata for key in required_edge_keys), f"Graph edges must contain keys: {required_edge_keys}"
+        required_node_keys = ["feat", "position", "chr", "HT"]
+        required_edge_keys = ["feat", "rel_type", "distance"]
+        assert all(
+            key in graph.ndata for key in required_node_keys
+        ), f"Graph nodes must contain keys: {required_node_keys}"
+        assert all(
+            key in graph.edata for key in required_edge_keys
+        ), f"Graph edges must contain keys: {required_edge_keys}"
 
         self.graph: dgl.DGLGraph = graph
         self.ndata = graph.ndata
@@ -48,11 +54,13 @@ class GrooviGraph:
         self.chr_ids_included: np.ndarray = None
 
         # additional mappings
-        self.chr_int_to_str: dict[int, str] = None  # mapping from chromosome integer IDs (relative to reference used at construction) to string names
-    
+        self.chr_int_to_str: dict[int, str] = (
+            None  # mapping from chromosome integer IDs (relative to reference used at construction) to string names
+        )
+
     def __repr__(self):
         return f"GrooviGraph(num_nodes={self.graph.num_nodes()}, num_edges={self.graph.num_edges()})"
-    
+
     @staticmethod
     def get_node_types(adj: Edge) -> tuple[NodeType, NodeType]:
         if adj.orientation == Laterality.LL:
@@ -65,11 +73,11 @@ class GrooviGraph:
             return NodeType.HEAD, NodeType.TAIL
         else:
             raise ValueError(f"Unknown orientation: {adj.orientation}")
-        
+
     @staticmethod
-    def from_config(config: Config) -> list['GrooviGraph']:
+    def from_config(config: Config) -> list["GrooviGraph"]:
         signal_extractor = SignalExtractor(config)
-        adj_index = AdjIndex(config, edges = signal_extractor.get_edges())
+        adj_index = AdjIndex(config, edges=signal_extractor.get_edges())
         adj_index.cluster_splitreads()
 
         # begin graph construction
@@ -77,55 +85,84 @@ class GrooviGraph:
         ref_rel_id = EDGE_FEATURE_TO_ID[EdgeFeature.REF]
         segments = adj_index.get_segments()
         g = dgl.graph(([], []))
-        
+
         # create nodes
         node_iter = 0
         node_id_map = {}
         for segment in segments:
-            chrom, start_pos, end_pos = segment.get_chrom(), segment.get_start_pos(), segment.get_end_pos()
-            g.add_nodes(2, data={
-                'position': torch.tensor([start_pos, end_pos], dtype=torch.int64),
-                'chr': torch.tensor([chrom, chrom], dtype=torch.int64),
-                'HT': torch.tensor([0, 1], dtype=torch.int64)  # 0 for HEAD, 1 for TAIL
-            })
+            chrom, start_pos, end_pos = (
+                segment.get_chrom(),
+                segment.get_start_pos(),
+                segment.get_end_pos(),
+            )
+            g.add_nodes(
+                2,
+                data={
+                    "position": torch.tensor([start_pos, end_pos], dtype=torch.int64),
+                    "chr": torch.tensor([chrom, chrom], dtype=torch.int64),
+                    "HT": torch.tensor(
+                        [0, 1], dtype=torch.int64
+                    ),  # 0 for HEAD, 1 for TAIL
+                },
+            )
             node_id_map[(chrom, start_pos, NodeType.HEAD)] = node_iter
             node_id_map[(chrom, end_pos, NodeType.TAIL)] = node_iter + 1
             node_iter += 2
 
         # add segment edges
         for segment in segments:
-            chrom, start_pos, end_pos = segment.get_chrom(), segment.get_start_pos(), segment.get_end_pos()
+            chrom, start_pos, end_pos = (
+                segment.get_chrom(),
+                segment.get_start_pos(),
+                segment.get_end_pos(),
+            )
             head_id = node_id_map[(chrom, start_pos, NodeType.HEAD)]
             tail_id = node_id_map[(chrom, end_pos, NodeType.TAIL)]
-            g.add_edges(head_id, tail_id, data={
-                'rel_type': torch.tensor([seg_rel_id], dtype=torch.int64),
-                'feat': torch.tensor([[1]], dtype=torch.float32),
-            })
-            g.add_edges(tail_id, head_id, data={
-                'rel_type': torch.tensor([seg_rel_id], dtype=torch.int64),
-                'feat': torch.tensor([[1]], dtype=torch.float32),
-            })
+            g.add_edges(
+                head_id,
+                tail_id,
+                data={
+                    "rel_type": torch.tensor([seg_rel_id], dtype=torch.int64),
+                    "feat": torch.tensor([[1]], dtype=torch.float32),
+                },
+            )
+            g.add_edges(
+                tail_id,
+                head_id,
+                data={
+                    "rel_type": torch.tensor([seg_rel_id], dtype=torch.int64),
+                    "feat": torch.tensor([[1]], dtype=torch.float32),
+                },
+            )
 
         # add reference edges
-        for i in range(len(segments)-1):
-            seg1, seg2 = segments[i], segments[i+1]
+        for i in range(len(segments) - 1):
+            seg1, seg2 = segments[i], segments[i + 1]
             if seg1.get_chrom() != seg2.get_chrom():
                 continue
             chrom = seg1.get_chrom()
             end_pos, start_pos = seg1.get_end_pos(), seg2.get_start_pos()
             tail_id = node_id_map[(chrom, end_pos, NodeType.TAIL)]
             head_id = node_id_map[(chrom, start_pos, NodeType.HEAD)]
-            g.add_edges(tail_id, head_id, data={
-                'rel_type': torch.tensor([ref_rel_id], dtype=torch.int64),
-                'feat': torch.tensor([[1]], dtype=torch.float32),
-            })
-            g.add_edges(head_id, tail_id, data={
-                'rel_type': torch.tensor([ref_rel_id], dtype=torch.int64),
-                'feat': torch.tensor([[1]], dtype=torch.float32),
-            })
+            g.add_edges(
+                tail_id,
+                head_id,
+                data={
+                    "rel_type": torch.tensor([ref_rel_id], dtype=torch.int64),
+                    "feat": torch.tensor([[1]], dtype=torch.float32),
+                },
+            )
+            g.add_edges(
+                head_id,
+                tail_id,
+                data={
+                    "rel_type": torch.tensor([ref_rel_id], dtype=torch.int64),
+                    "feat": torch.tensor([[1]], dtype=torch.float32),
+                },
+            )
 
         # TODO: add node features
-        g.ndata['feat'] = torch.randn((g.num_nodes(), 5))
+        g.ndata["feat"] = torch.randn((g.num_nodes(), 5))
 
         # create adjacency edges
         candidate_src, candidate_dst = [], []
@@ -134,47 +171,63 @@ class GrooviGraph:
             src_node_id = node_id_map[(adj.chrom1, adj.pos1, node_type_src)]
             dst_node_id = node_id_map[(adj.chrom2, adj.pos2, node_type_dst)]
             edge_rel_id = EDGE_FEATURE_TO_ID[adj.get_edge_type()]
-            g.add_edges(src_node_id, dst_node_id, data={
-                'rel_type': torch.tensor([edge_rel_id], dtype=torch.int64),
-                'feat': torch.tensor([[adj.evidence]], dtype=torch.float32),
-            })
-            g.add_edges(dst_node_id, src_node_id, data={
-                'rel_type': torch.tensor([edge_rel_id], dtype=torch.int64),
-                'feat': torch.tensor([[adj.evidence]], dtype=torch.float32),
-            })
+            g.add_edges(
+                src_node_id,
+                dst_node_id,
+                data={
+                    "rel_type": torch.tensor([edge_rel_id], dtype=torch.int64),
+                    "feat": torch.tensor([[adj.evidence]], dtype=torch.float32),
+                },
+            )
+            g.add_edges(
+                dst_node_id,
+                src_node_id,
+                data={
+                    "rel_type": torch.tensor([edge_rel_id], dtype=torch.int64),
+                    "feat": torch.tensor([[adj.evidence]], dtype=torch.float32),
+                },
+            )
 
             candidate_src.append(src_node_id)
             candidate_dst.append(dst_node_id)
-        candidate_src, candidate_dst = torch.tensor(candidate_src, dtype=torch.int64), torch.tensor(candidate_dst, dtype=torch.int64)
+        candidate_src, candidate_dst = torch.tensor(
+            candidate_src, dtype=torch.int64
+        ), torch.tensor(candidate_dst, dtype=torch.int64)
 
         # add pairwise depth
         u, v = g.edges()
-        edge_mask = g.edata['rel_type'] == ref_rel_id
+        edge_mask = g.edata["rel_type"] == ref_rel_id
         u, v = u[edge_mask], v[edge_mask]
         m = len(u)
         rd_index = NODE_FEATURE_TO_ID[NodeFeature.RD]
         pd_edge_id = EDGE_FEATURE_TO_ID[EdgeFeature.PD]
-        pairwise_depth = (g.ndata['feat'][v,rd_index] - g.ndata['feat'][u,rd_index]).unsqueeze(-1)
-        rel_type = pd_edge_id*torch.ones((m,), dtype=torch.int64)
-        g.add_edges(u, v, data={'feat' : pairwise_depth, 'rel_type': rel_type})
+        pairwise_depth = (
+            g.ndata["feat"][v, rd_index] - g.ndata["feat"][u, rd_index]
+        ).unsqueeze(-1)
+        rel_type = pd_edge_id * torch.ones((m,), dtype=torch.int64)
+        g.add_edges(u, v, data={"feat": pairwise_depth, "rel_type": rel_type})
 
         # add distance feature
-        u, v, _ = g.edges(form='all')
-        distances = torch.abs(g.ndata['position'][u] - g.ndata['position'][v])
-        g.edata['distance'] = distances
+        u, v, _ = g.edges(form="all")
+        distances = torch.abs(g.ndata["position"][u] - g.ndata["position"][v])
+        g.edata["distance"] = distances
 
         # object construction and annotations
         groovi_graph = GrooviGraph(g)
-        groovi_graph._set_chr_ids_included(np.unique(g.ndata['chr'].numpy())) #  record chromosomes included in connected components
+        groovi_graph._set_chr_ids_included(
+            np.unique(g.ndata["chr"].numpy())
+        )  #  record chromosomes included in connected components
         groovi_graph._set_candidate_edges(candidate_src, candidate_dst)
-        groovi_graph._set_vcf_path(config.vcf if hasattr(config, 'vcf') else None)
-        groovi_graph._set_info_path(config.info if hasattr(config, 'info') else None)
-        groovi_graph._set_chr_int_to_str_conversion(signal_extractor.fai_index.get_tid_to_str_conversion())
+        groovi_graph._set_vcf_path(config.vcf if hasattr(config, "vcf") else None)
+        groovi_graph._set_info_path(config.info if hasattr(config, "info") else None)
+        groovi_graph._set_chr_int_to_str_conversion(
+            signal_extractor.fai_index.get_tid_to_str_conversion()
+        )
 
         return [groovi_graph]
 
     @staticmethod
-    def split_by_components(graph: 'GrooviGraph') -> list['GrooviGraph']:
+    def split_by_components(graph: "GrooviGraph") -> list["GrooviGraph"]:
         g = graph.get_dgl_graph()
         components: list[GrooviGraph] = []
         n = g.num_nodes()
@@ -183,7 +236,7 @@ class GrooviGraph:
         for node_id in range(n):
             if visited[node_id]:
                 continue
-            
+
             # BFS to find all nodes in the component
             queue = deque([node_id])
             component_node_ids = []
@@ -193,22 +246,24 @@ class GrooviGraph:
                     continue
                 visited[current_node] = True
                 component_node_ids.append(current_node)
-                
+
                 neighbors = g.successors(current_node).tolist()
                 for neighbor in neighbors:
                     if not visited[neighbor]:
                         queue.append(neighbor)
 
             # Create a subgraph for the component
-            component_node_ids = torch.tensor(sorted(component_node_ids), dtype=torch.int64)
+            component_node_ids = torch.tensor(
+                sorted(component_node_ids), dtype=torch.int64
+            )
             breakpoint_subgraph: GrooviGraph = graph.get_subgraph(component_node_ids)
             components.append(breakpoint_subgraph)
 
         return components
-    
+
     def get_dgl_graph(self) -> dgl.DGLGraph:
         return self.graph
-    
+
     def get_vcf_path(self):
         return self.vcf_path
 
@@ -216,57 +271,68 @@ class GrooviGraph:
         return self.info_path
 
     def get_candidate_edges(self):
-        assert self.candidate_src is not None and self.candidate_dst is not None, "Candidate edges are not set."
+        assert (
+            self.candidate_src is not None and self.candidate_dst is not None
+        ), "Candidate edges are not set."
         return self.candidate_src, self.candidate_dst
-    
+
     def get_chr_ids_included(self, as_string: bool = False) -> np.ndarray:
         if as_string:
-            return np.array([self.chr_int_to_str[chr_id] for chr_id in self.chr_ids_included])
+            return np.array(
+                [self.chr_int_to_str[chr_id] for chr_id in self.chr_ids_included]
+            )
         return self.chr_ids_included
-    
+
     def nodes(self):
         return self.graph.nodes()
 
-    def edges(self, form: str = 'all'):
+    def edges(self, form: str = "all"):
         return self.graph.edges(form=form)
 
     def num_nodes(self):
         return self.graph.num_nodes()
-    
+
     def num_edges(self):
         return self.graph.num_edges()
-    
-    def out_edges(self, u: Any, form: str = 'all'):
+
+    def out_edges(self, u: Any, form: str = "all"):
         return self.graph.out_edges(u, form=form)
 
     def get_chr_names_by_node_ids(self, node_ids: list[int]) -> list[str]:
-        chr_ids = self.graph.ndata['chr'][node_ids].tolist()
+        chr_ids = self.graph.ndata["chr"][node_ids].tolist()
         chr_names = [self.chr_int_to_str[chr_id] for chr_id in chr_ids]
         return chr_names
 
-    def get_subgraph(self, node_ids: list[int]) -> 'GrooviGraph':
+    def get_subgraph(self, node_ids: list[int]) -> "GrooviGraph":
         """Get a subgraph from the GrooviGraph."""
         dgl_subgraph = dgl.node_subgraph(self.graph, node_ids)
         groovi_subgraph = GrooviGraph(dgl_subgraph)
         if self.candidate_src is not None:
             subgraph_src = self.candidate_src[torch.isin(self.candidate_src, node_ids)]
             subgraph_dst = self.candidate_dst[torch.isin(self.candidate_dst, node_ids)]
-            remapped_src = self._remap_original_to_subgraph_ids(dgl_subgraph, subgraph_src)
-            remapped_dst = self._remap_original_to_subgraph_ids(dgl_subgraph, subgraph_dst)
+            remapped_src = self._remap_original_to_subgraph_ids(
+                dgl_subgraph, subgraph_src
+            )
+            remapped_dst = self._remap_original_to_subgraph_ids(
+                dgl_subgraph, subgraph_dst
+            )
             groovi_subgraph._set_candidate_edges(remapped_src, remapped_dst)
 
         if self.vcf_path is not None:
             groovi_subgraph._set_vcf_path(self.vcf_path)
-        
+
         if self.chr_ids_included is not None:
-            unique_chr_ids = np.unique(self.graph.ndata['chr'][node_ids])
+            unique_chr_ids = np.unique(self.graph.ndata["chr"][node_ids])
             groovi_subgraph._set_chr_ids_included(unique_chr_ids)
 
         groovi_subgraph._set_chr_int_to_str_conversion(self.chr_int_to_str)
         return groovi_subgraph
-    
+
     def get_laterality_by_node_ids(self, src, dst):
-        node_type_1, node_type_2 = ID_TO_NODE_TYPE[self.graph.ndata['HT'][src].item()], ID_TO_NODE_TYPE[self.graph.ndata['HT'][dst].item()]
+        node_type_1, node_type_2 = (
+            ID_TO_NODE_TYPE[self.graph.ndata["HT"][src].item()],
+            ID_TO_NODE_TYPE[self.graph.ndata["HT"][dst].item()],
+        )
         if node_type_1 == NodeType.HEAD and node_type_2 == NodeType.HEAD:
             return Laterality.RR
         elif node_type_1 == NodeType.TAIL and node_type_2 == NodeType.TAIL:
@@ -276,27 +342,27 @@ class GrooviGraph:
         elif node_type_1 == NodeType.TAIL and node_type_2 == NodeType.HEAD:
             return Laterality.LR
         else:
-            raise ValueError(f"Unknown HEAD/TAIL combination: {node_type_1}, {node_type_2}")
+            raise ValueError(
+                f"Unknown HEAD/TAIL combination: {node_type_1}, {node_type_2}"
+            )
 
     def decompose(self) -> tuple:
         candidate_src, candidate_dst = self.get_candidate_edges()
         start_chr_names = self.get_chr_names_by_node_ids(candidate_src)
-        end_chr_names = self.get_chr_names_by_node_ids(candidate_dst) 
-        start_positions = self.ndata['position'][candidate_src].tolist()
-        end_positions = self.ndata['position'][candidate_dst].tolist()
-        
+        end_chr_names = self.get_chr_names_by_node_ids(candidate_dst)
+        start_positions = self.ndata["position"][candidate_src].tolist()
+        end_positions = self.ndata["position"][candidate_dst].tolist()
+
         return start_chr_names, end_chr_names, start_positions, end_positions
-        
-       
-        
-    def apply_transforms(self, transform: T.BaseTransform) -> 'GrooviGraph':
+
+    def apply_transforms(self, transform: T.BaseTransform) -> "GrooviGraph":
         """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""
         transformed_graph = transform(self.graph)
         self.graph = transformed_graph
         self.ndata = transformed_graph.ndata
         self.edata = transformed_graph.edata
         return self
-    
+
     def _set_vcf_path(self, vcf_path: str):
         self.vcf_path = vcf_path
 
@@ -304,38 +370,56 @@ class GrooviGraph:
         self.info_path = info_path
 
     def _set_candidate_edges(self, src: torch.LongTensor, dst: torch.LongTensor):
-        assert src.shape == dst.shape, "Source and destination tensors must have the same shape."
-        assert src.dtype == torch.int64 and dst.dtype == torch.int64, "Source and destination tensors must be of type torch.int64."
+        assert (
+            src.shape == dst.shape
+        ), "Source and destination tensors must have the same shape."
+        assert (
+            src.dtype == torch.int64 and dst.dtype == torch.int64
+        ), "Source and destination tensors must be of type torch.int64."
         self.candidate_src = src
         self.candidate_dst = dst
-    
+
     def _set_chr_int_to_str_conversion(self, chr_int_to_str: dict[int, str]):
-        '''
+        """
         sets chr_int_to_str dict, a mapping from chromosome integer IDs (relative to reference used at construction) to chr string names
-        '''
+        """
         self.chr_int_to_str = chr_int_to_str
 
     def _set_chr_ids_included(self, chr_ids: np.ndarray):
         assert isinstance(chr_ids, np.ndarray), "Chromosome IDs must be a numpy array."
         self.chr_ids_included = chr_ids
 
-    def _remap_original_to_subgraph_ids(self, subgraph: dgl.DGLGraph, original_node_ids_to_remap: torch.Tensor) -> torch.Tensor:
-        '''
+    def _remap_original_to_subgraph_ids(
+        self, subgraph: dgl.DGLGraph, original_node_ids_to_remap: torch.Tensor
+    ) -> torch.Tensor:
+        """
         maps node ids from the original graph to the subgraph node ids, primarily used for remapping candidate edges ids when subgraphs are produced
-        '''
+        """
         if dgl.NID not in subgraph.ndata:
-            raise ValueError("Subgraph must contain original node IDs (dgl.NID) in its ndata. ")
+            raise ValueError(
+                "Subgraph must contain original node IDs (dgl.NID) in its ndata. "
+            )
 
         # maps child graph ids to parentgraph ids
-        child_to_parent_id_map = subgraph.ndata[dgl.NID] 
+        child_to_parent_id_map = subgraph.ndata[dgl.NID]
 
         # map parent graph ids to child graph ids
         child_graph_num_nodes = child_to_parent_id_map.max().item() + 1
-        parent_to_child_id_map = torch.full((child_graph_num_nodes,), -1, dtype=child_to_parent_id_map.dtype, device=subgraph.device)
-        parent_to_child_id_map[child_to_parent_id_map] = torch.arange((len(child_to_parent_id_map)), dtype=child_to_parent_id_map.dtype, device=subgraph.device)
+        parent_to_child_id_map = torch.full(
+            (child_graph_num_nodes,),
+            -1,
+            dtype=child_to_parent_id_map.dtype,
+            device=subgraph.device,
+        )
+        parent_to_child_id_map[child_to_parent_id_map] = torch.arange(
+            (len(child_to_parent_id_map)),
+            dtype=child_to_parent_id_map.dtype,
+            device=subgraph.device,
+        )
 
         remapped_ids = parent_to_child_id_map[original_node_ids_to_remap]
-        assert not (remapped_ids == -1).any(), "Some original node IDs were not found in the subgraph."
-        
-        return remapped_ids
+        assert not (
+            remapped_ids == -1
+        ).any(), "Some original node IDs were not found in the subgraph."
 
+        return remapped_ids
