@@ -77,10 +77,10 @@ class StaticDatasetEdgeClassification(StaticDataset):
             f.write("\n".join(label_summary))
     
     def __getitem__(self, index):
-        groovi_graph = self.graphs[index]
+        groovi_graph: GrooviGraph = self.graphs[index]
         dgl_graph = groovi_graph.get_dgl_graph()
         labels = self.labels[index]
-        src, dst = groovi_graph.get_candidate_edge_ids()
+        src, dst = groovi_graph.get_candidate_edges()
         return dgl_graph, src, dst, labels
 
 class StaticDatasetGraphClassification(StaticDataset):
