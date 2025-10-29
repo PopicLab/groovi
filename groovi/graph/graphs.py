@@ -215,7 +215,7 @@ class GrooviGraph:
     def get_info_path(self):
         return self.info_path
 
-    def get_candidate_edge_ids(self):
+    def get_candidate_edges(self):
         assert self.candidate_src is not None and self.candidate_dst is not None, "Candidate edges are not set."
         return self.candidate_src, self.candidate_dst
     
@@ -240,7 +240,7 @@ class GrooviGraph:
         return self.graph.out_edges(u, form=form)
 
     def get_chr_names_by_node_ids(self, node_ids: list[int]) -> list[str]:
-        chr_ids = self.graph.ndata['chr'][node_ids].numpy()
+        chr_ids = self.graph.ndata['chr'][node_ids].tolist()
         chr_names = [self.chr_int_to_str[chr_id] for chr_id in chr_ids]
         return chr_names
 
@@ -278,7 +278,16 @@ class GrooviGraph:
         else:
             raise ValueError(f"Unknown HEAD/TAIL combination: {node_type_1}, {node_type_2}")
 
-
+    def decompose(self) -> tuple:
+        candidate_src, candidate_dst = self.get_candidate_edges()
+        start_chr_names = self.get_chr_names_by_node_ids(candidate_src)
+        end_chr_names = self.get_chr_names_by_node_ids(candidate_dst) 
+        start_positions = self.ndata['position'][candidate_src].tolist()
+        end_positions = self.ndata['position'][candidate_dst].tolist()
+        
+        return start_chr_names, end_chr_names, start_positions, end_positions
+        
+       
         
     def apply_transforms(self, transform: T.BaseTransform) -> 'GrooviGraph':
         """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""

@@ -74,8 +74,8 @@ class GraphHandler:
                 'num_edges': graph.num_edges(),
                 'chr_ids': graph.get_chr_ids_included(as_string=True),
                 'vcf': graph.vcf_path,
-                'candidate_src': graph.get_candidate_edge_ids()[0],
-                'candidate_dst': graph.get_candidate_edge_ids()[1],
+                'candidate_src': graph.get_candidate_edges()[0],
+                'candidate_dst': graph.get_candidate_edges()[1],
                 # ... add more statistics if needed
             }
             self.summary.append(summary_entry)

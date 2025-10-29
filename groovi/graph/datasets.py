@@ -58,7 +58,7 @@ class StaticDatasetEdgeClassification(StaticDataset):
             tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
             labels = []
             distances = []
-            for src, dst in zip(*graph.get_candidate_edge_ids()):
+            for src, dst in zip(*graph.get_candidate_edges()):
                 # obtain relevant info for querying: position, HT, chrom
                 position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
                 laterality = graph.get_laterality_by_node_ids(src.item(), dst.item())
@@ -139,9 +139,11 @@ class StreamingDataset(IterableDataset):
         elif isinstance(self.config, CallConfig) or isinstance(self.config, InferenceMotifConfig):
             # if cache_graphs, save the generated graphs
             for graph_path in self.config.graph_paths:
-                loaded_graphs = self.handler.load(graph_path, store=self.config.cache_graphs)
+                loaded_graphs = self.handler.load(graph_path)
                 yield from self._graph_generator(loaded_graphs)
             if self.config.cache_graphs: self.handler.save()
+
+            # TODO: load from bams
 
         # ... add support for other stremaing types types [URLs, multiple BAMs, etc.] ...
 
