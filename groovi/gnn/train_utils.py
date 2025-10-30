@@ -270,7 +270,7 @@ def edge_classification_collate_fn(batch_items) -> tuple:
 
 def inference_collate_fn(groovi_graphs: list[GrooviGraph]) -> tuple:
     """
-    Custom collate_fn for groovi graphs
+    Custom collate_fn for groovi graphs, unpacks them into dgl graphs and src/dst candidates
     """
     # Unzip the batch items
     batch_items = [
