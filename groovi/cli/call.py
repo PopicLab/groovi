@@ -38,14 +38,16 @@ def main(config_yaml):
     # ---------Model Setup--------
     model = EdgeClassificationModel(
         n_in_dim=len(NodeFeature),
-        h_dim=config.hidden_dim,
+        hidden_dim=config.hidden_dim,
         ht_emb_dim=config.ht_emb_dim,
         num_classes=num_classes,
         num_rels=len(EdgeFeature),
         update=config.update,
+        num_convolutions=config.num_convolutions,
         num_hidden_layers=config.num_hidden_layers,
         normalize=config.normalize,
     )
+
 
     model.load_state_dict(
         torch.load(config.model_path, map_location=torch.device(config.device))

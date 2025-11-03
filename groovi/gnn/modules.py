@@ -10,10 +10,10 @@ import dgl.function as fn
 from dgl.nn.pytorch.linear import TypedLinear
 
 # Adapted from https://www.dgl.ai/dgl_docs/en/2.4.x/_modules/dgl/nn/pytorch/conv/relgraphconv.html#RelGraphConv
-"""
-Graph convolutions
-"""
 
+##############################################
+# Graph Convolutions
+##############################################
 
 class RelGraphConvLayer(nn.Module):
     def __init__(
@@ -88,55 +88,11 @@ class RelGraphConvLayer(nn.Module):
 
             h_updated = self.dropout(h_updated)
             return h_updated
+        
 
-
-class RelationalGraphConv(nn.Module):
-    def __init__(
-        self,
-        n_in_dim,
-        h_dim,
-        ht_emb_dim,
-        num_rels,
-        normalize,
-        num_hidden_layers,
-        update="WConcat",
-    ):
-        super().__init__()
-        self.normalize = normalize
-        self.ht_embedding = nn.Embedding(len(NodeType), ht_emb_dim)  # 2 for head/tail
-        self.initial_layer = RelGraphConvLayer(
-            n_in_feat=n_in_dim + ht_emb_dim,
-            out_feat=h_dim,
-            num_rels=num_rels,
-            update=update,
-        )
-        layers = [
-            RelGraphConvLayer(h_dim, h_dim, num_rels, update=update)
-            for _ in range(num_hidden_layers)
-        ]
-        self.hidden_layers = nn.ModuleList(layers)
-
-    def forward(self, g, nfeat, htfeat, mfeat, etypes):
-        ht_emb = self.ht_embedding(htfeat)
-        nfeat = torch.cat([nfeat, ht_emb], dim=-1)
-        h = self.initial_layer(
-            g, nfeat, mfeat, etypes=etypes.long()
-        )  # etypes expected to be of type long; 64 bit int
-        h = F.leaky_relu(h)
-        if self.normalize:
-            h = F.normalize(h, dim=1)
-        for layer in self.hidden_layers:
-            h = layer(g, h, mfeat, etypes)
-            h = F.leaky_relu(h)
-            if self.normalize:
-                h = F.normalize(h, dim=1)
-        return h
-
-
-"""
-Global Pooling modules
-"""
-
+##############################################
+# Pooling Modules
+##############################################
 
 # from https://www.dgl.ai/dgl_docs/_modules/dgl/nn/pytorch/glob.html#GlobalAttentionPooling
 class GlobalAttentionPooling(nn.Module):
@@ -166,21 +122,19 @@ class GlobalAttentionPooling(nn.Module):
             else:
                 return readout
 
-
-"""
-General modules
-"""
-
+##############################################
+# General Modules
+##############################################
 
 class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=3, dropout=0.1):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_hidden_layers=3, dropout=0.1):
         super().__init__()
         layers = []
-        for i in range(num_layers):
+        for i in range(num_hidden_layers):
             in_dim = input_dim if i == 0 else hidden_dim
-            out_dim = output_dim if i == num_layers - 1 else hidden_dim
+            out_dim = output_dim if i == num_hidden_layers - 1 else hidden_dim
             layers.append(nn.Linear(in_dim, out_dim))
-            if i != num_layers - 1:
+            if i != num_hidden_layers - 1:
                 layers.append(nn.ReLU())
                 if dropout > 0:
                     layers.append(nn.Dropout(dropout))

@@ -7,6 +7,20 @@ import sys
 import torch
 import yaml
 
+MODEL_SPECIFICATIONS = [
+    "ht_emb_dim",
+    "hidden_dim",
+    "num_convolutions",
+    "num_hidden_layers",
+    "update",
+    "normalize",
+]
+
+INIT_SPECIFICATIONS = [
+    "seed",
+    "num_cores",  # limiting dgl's cpu usage
+    "logging",
+]
 
 class Config:
     def __init__(self, config_yaml: str):
@@ -78,19 +92,9 @@ class TrainConfig(Config):
             "num_epochs",
             "learning_rate",
             "device",
-            # model specifications
-            "ht_emb_dim",
-            "hidden_dim",
-            "update",
-            "num_hidden_layers",
-            "normalize",
-            # Initialization
-            "seed",
-            "num_cores",  # limiting dgl's cpu usage
-            "logging",
             # misc
             "graph_visualize_every",  # post transformation visualization frequency
-        ]
+        ] + MODEL_SPECIFICATIONS + INIT_SPECIFICATIONS
         self._validate_params()
 
         if self.device == "cuda":
@@ -130,17 +134,12 @@ class EvaluateConfig(Config):
             "graph_paths",
             "transforms",
             # model specifications
-            "ht_emb_dim",
-            "hidden_dim",
-            "update",
-            "num_hidden_layers",
-            "normalize",
             "model_path",
             # Initialization
             "seed",
             "num_cores",  # limiting dgl's cpu usage
             "logging",
-        ]
+        ]  + MODEL_SPECIFICATIONS + INIT_SPECIFICATIONS
         self._validate_params()
         self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
         self.img_dir = os.path.join(
@@ -168,18 +167,7 @@ class CallConfig(Config):
             # data specifications
             "graph_paths",
             "transforms",
-            # model specifications
-            "ht_emb_dim",
-            "hidden_dim",
-            "update",
-            "num_hidden_layers",
-            "normalize",
-            "model_path",
-            # Initialization
-            "seed",
-            "num_cores",  # limiting dgl's cpu usage
-            "logging",
-        ]
+        ]  + MODEL_SPECIFICATIONS + INIT_SPECIFICATIONS
         self._validate_params()
         self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
         self.img_dir = os.path.join(
