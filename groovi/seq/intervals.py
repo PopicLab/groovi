@@ -8,16 +8,16 @@ class GenomeInterval:
         # other attributes
         for key, value in kwargs.items():
             setattr(self, key, value)
-    
+
     def get_start_pos(self):
         return self.start
-    
+
     def get_end_pos(self):
         return self.end
-    
+
     def get_start_chrom(self):
         return self.start_chrom
-    
+
     def get_target_chrom(self):
         return self.end_chrom
 
@@ -36,6 +36,3 @@ class GenomeInterval:
     @staticmethod
     def from_list(interval_list):
         return GenomeInterval(interval_list[0], interval_list[1], interval_list[2])
-
-
-
