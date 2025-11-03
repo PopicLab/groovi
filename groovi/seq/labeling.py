@@ -4,8 +4,13 @@ from groovi.seq.intervals import GenomeInterval
 from groovi.seq.io import *
 
 import numpy as np
-from scipy.spatial import KDTree
 from pysam import VariantFile
+from scipy.spatial import KDTree
+from typing import Union
+
+###############################################################
+# Structures for record keeping
+###############################################################
 
 def get_intervals_from_VCF(vcf_path: str) -> list[GenomeInterval]:
     '''
@@ -26,23 +31,32 @@ def get_intervals_from_VCF(vcf_path: str) -> list[GenomeInterval]:
         info = record.info
         end = record.stop
         target_chrom = info.get('END_CHROM', source_chrom) if 'END_CHROM' in info else source_chrom
-        orientation = Laterality(info['ORIENTATION'].value) if 'ORIENTATION' in info else None
+        orientation = ReadAlignmentOrientation(info['ORIENTATION'].value) if 'ORIENTATION' in info else None
 
         interval = GenomeInterval(source_chrom, target_chrom, start, end, sv_class=sv_class, orientation=orientation)
         intervals.append(interval)
 
     return intervals
     
-'''
-Structures for querying Groovi specific VCF Records
-'''
+###############################################################
+# Structures for querying
+###############################################################
+
 class VCF_KDTree:
+    """
+    Datastructure for efficient top-1 ofg top-k interval querying by L2 distance of (start, end) points.
+
+    Includes ability to filter by split alignment orientation by
+    - maximum distance
+    - chromosome
+    - split alignment orientation
+    """
     def __init__(self, vcf_path: str):
-        self.intervals = get_intervals_from_VCF(vcf_path)
+        self.intervals: list[GenomeInterval] = get_intervals_from_VCF(vcf_path)
         self.positions = np.array([[interval.get_start_pos(), interval.get_end_pos()] for interval in self.intervals])
         self.kdtree = KDTree(self.positions)
 
-    def query_top_label(self, query: np.ndarray, start_chrom: str, end_chrom: str, k: int = 5, laterality = None, return_distance = False, max_distance = 100) -> list[VCFRecord]:
+    def query_top_label(self, query: np.ndarray, start_chrom: str, end_chrom: str, k: int = 5, split_alignmnet_orientation = None, return_distance = False, max_distance = 100) -> Union[tuple[str, int], str]:
         # Query the KDTree for the top k records within a certain distance
         distances, indices = self.kdtree.query(query, k=k)
         # TODO ... other filters (OP type, head/tail, ...)
@@ -53,8 +67,8 @@ class VCF_KDTree:
         indices = [i for i, d in zip(indices, distances) if d <= max_distance]
 
         # Filter by orientation
-        if laterality is not None:
-            indices = [i for i in indices if self.intervals[i].orientation == laterality]
+        if split_alignmnet_orientation is not None:
+            indices = [i for i in indices if self.intervals[i].orientation == split_alignmnet_orientation]
 
         filtered_intervals = [self.intervals[i] for i in indices]
 

@@ -63,13 +63,13 @@ class GrooviGraph:
 
     @staticmethod
     def get_node_types(adj: Edge) -> tuple[NodeType, NodeType]:
-        if adj.orientation == Laterality.LL:
+        if adj.orientation == ReadAlignmentOrientation.LL:
             return NodeType.TAIL, NodeType.TAIL
-        elif adj.orientation == Laterality.RR:
+        elif adj.orientation == ReadAlignmentOrientation.RR:
             return NodeType.HEAD, NodeType.HEAD
-        elif adj.orientation == Laterality.LR:
+        elif adj.orientation == ReadAlignmentOrientation.LR:
             return NodeType.TAIL, NodeType.HEAD
-        elif adj.orientation == Laterality.RL:
+        elif adj.orientation == ReadAlignmentOrientation.RL:
             return NodeType.HEAD, NodeType.TAIL
         else:
             raise ValueError(f"Unknown orientation: {adj.orientation}")
@@ -334,13 +334,13 @@ class GrooviGraph:
             ID_TO_NODE_TYPE[self.graph.ndata["HT"][dst].item()],
         )
         if node_type_1 == NodeType.HEAD and node_type_2 == NodeType.HEAD:
-            return Laterality.RR
+            return ReadAlignmentOrientation.RR
         elif node_type_1 == NodeType.TAIL and node_type_2 == NodeType.TAIL:
-            return Laterality.LL
+            return ReadAlignmentOrientation.LL
         elif node_type_1 == NodeType.HEAD and node_type_2 == NodeType.TAIL:
-            return Laterality.RL
+            return ReadAlignmentOrientation.RL
         elif node_type_1 == NodeType.TAIL and node_type_2 == NodeType.HEAD:
-            return Laterality.LR
+            return ReadAlignmentOrientation.LR
         else:
             raise ValueError(
                 f"Unknown HEAD/TAIL combination: {node_type_1}, {node_type_2}"

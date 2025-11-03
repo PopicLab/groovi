@@ -50,7 +50,7 @@ SV_CLASS_TO_ID_FN = lambda sv_class: SV_CLASS_TO_ID_HELPER.get(sv_class, 0)  # d
 # Graph Construction Enums
 ################################################
 
-class Laterality(Enum):
+class ReadAlignmentOrientation(Enum):
     LR = 'LR'
     RL = 'RL'
     LL = 'LL'

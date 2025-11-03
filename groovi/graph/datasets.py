@@ -93,7 +93,7 @@ class StaticDatasetEdgeClassification(StaticDataset):
                     end_chrom=chrom2,
                     k=5,
                     return_distance=True,
-                    laterality=laterality,
+                    split_alignmnet_orientation=laterality,
                 )
                 labels.append(label)
                 label_summary.append(
