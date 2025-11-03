@@ -48,12 +48,13 @@ def main(config_yaml):
     # ---------Model Setup--------
     model = GraphClassificationModel(
         n_in_dim=len(NodeFeature),
-        h_dim=config.hidden_dim,
+        hidden_dim=config.hidden_dim,
         num_classes=dataset.get_num_classes(),
         ht_emb_dim=config.ht_emb_dim,
         num_rels=len(EdgeFeature),
         update=config.update,
         pooling=config.pooling,
+        num_convolutions=config.num_convolutions,
         num_hidden_layers=config.num_hidden_layers,
         normalize=config.normalize,
     )

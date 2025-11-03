@@ -61,13 +61,20 @@ class GraphClassificationModel(nn.Module):
         )
 
     def forward(self, g):
-        h = self.conv(
-            g=g,
-            nfeat=g.ndata["feat"],
-            htfeat=g.ndata["HT"],
-            mfeat=g.edata["feat"],
-            etypes=g.edata["rel_type"],
-        )
+        mfeat = g.edata["feat"]
+        etypes = g.edata["rel_type"]
+        nfeat = g.ndata["feat"]
+        ht_feat = self.ht_embedding(g.ndata['HT'])
+        h = torch.cat([nfeat, ht_feat], dim=-1)
+        h = self.projection(h)
+
+        # gnn
+        for conv in self.convolutions:
+            h = conv(g, h, mfeat, etypes)
+            h = F.leaky_relu(h)
+            if self.normalize:
+                h = F.normalize(h)
+                
         h_pool = self.pool(g, h)
         out = self.mlp(h_pool)
         return out
