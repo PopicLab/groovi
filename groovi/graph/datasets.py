@@ -14,9 +14,11 @@ from torch.utils.data import IterableDataset, Dataset
 from typing import Callable
 import numpy as np
 
-'''
+"""
 Static Datasets
-'''
+"""
+
+
 class StaticDataset(Dataset):
     def __init__(self, config):
         super().__init__()
@@ -25,25 +27,41 @@ class StaticDataset(Dataset):
         self.config = config
         self.config = config
         self.handler = GraphHandler(config)
-        self.graphs: list[GrooviGraph] = sum([self.handler.load(path) for path in config.graph_paths], [])
+        self.graphs: list[GrooviGraph] = sum(
+            [self.handler.load(path) for path in config.graph_paths], []
+        )
 
         # apply transforms
-        self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
-        self.graphs = [graph.apply_transforms(self.transforms) or graph for graph in self.graphs]
+        self.transforms = T.Compose(
+            [TRANSFORMS[transform_name] for transform_name in config.transforms]
+        )
+        self.graphs = [
+            graph.apply_transforms(self.transforms) or graph for graph in self.graphs
+        ]
 
         # optionally, post transformation visualization
         if config.graph_visualize_every > 0:
-            logging.info(f"Visualizing every {config.graph_visualize_every} graphs to {config.img_dir}")
+            logging.info(
+                f"Visualizing every {config.graph_visualize_every} graphs to {config.img_dir}"
+            )
             for i, graph in enumerate(self.graphs):
                 if i % config.graph_visualize_every == 0:
-                    save_path = os.path.join(config.img_dir, f'graph_vis_{i}.html')
-                    visualize_groovi_graph(graph, path=save_path, node_feature_color_code=NodeFeature.RD, stagger_edges=True)
+                    save_path = os.path.join(config.img_dir, f"graph_vis_{i}.html")
+                    visualize_groovi_graph(
+                        graph,
+                        path=save_path,
+                        node_feature_color_code=NodeFeature.RD,
+                        stagger_edges=True,
+                    )
 
     def __getitem__(self, index):
-        raise NotImplementedError("Please use StaticDatasetEdgeClassification or StaticDatasetGraphClassification.")
-        
+        raise NotImplementedError(
+            "Please use StaticDatasetEdgeClassification or StaticDatasetGraphClassification."
+        )
+
     def __len__(self):
         return len(self.graphs)
+
 
 class StaticDatasetEdgeClassification(StaticDataset):
     def __init__(self, config):
@@ -58,27 +76,45 @@ class StaticDatasetEdgeClassification(StaticDataset):
             tree: VCF_KDTree = VCF_KDTree(graph.get_vcf_path())
             labels = []
             distances = []
-            for src, dst in zip(*graph.get_candidate_edge_ids()):
-                position1, position2 = graph.ndata['position'][src], graph.ndata['position'][dst]
-                chrom1, chrom2 = graph.get_chr_names_by_node_ids([graph.ndata['chr'][src].item(), graph.ndata['chr'][dst].item()])
-                label, distance = tree.query_top_label(chrom=chrom1, chrom_target=chrom2, query=np.array([position1, position2]), k=5, return_distance=True)
-                labels.append(label)
-                
-                label_summary.append(f"Graph {i}, Edge ({chrom1}:{position1}-{chrom2}:{position2}): Label {label}, Distance {distance}")
+            for src, dst in zip(*graph.get_candidate_edges()):
+                # obtain relevant info for querying: position, HT, chrom
+                position1, position2 = (
+                    graph.ndata["position"][src],
+                    graph.ndata["position"][dst],
+                )
+                laterality = graph.get_laterality_by_node_ids(src.item(), dst.item())
+                chrom1, chrom2 = graph.get_chr_names_by_node_ids(
+                    [graph.ndata["chr"][src].item(), graph.ndata["chr"][dst].item()]
+                )
 
+                label, distance = tree.query_top_label(
+                    query=np.array([position1, position2]),
+                    start_chrom=chrom1,
+                    end_chrom=chrom2,
+                    k=5,
+                    return_distance=True,
+                    split_alignmnet_orientation=laterality,
+                )
+                labels.append(label)
+                label_summary.append(
+                    f"Graph {i}, Edge ({chrom1}:{position1}-{chrom2}:{position2}): Label {label}, Distance {distance}"
+                )
+
+            labels = [SV_CLASS_TO_ID_FN(label) for label in labels]
             labels = torch.tensor(labels, dtype=torch.long)
             self.labels.append(labels)
             self.distances.append(distances)
 
-        with open(config.stats_path, 'w') as f:
+        with open(config.stats_path, "w") as f:
             f.write("\n".join(label_summary))
-    
+
     def __getitem__(self, index):
-        groovi_graph = self.graphs[index]
+        groovi_graph: GrooviGraph = self.graphs[index]
         dgl_graph = groovi_graph.get_dgl_graph()
         labels = self.labels[index]
-        src, dst = groovi_graph.get_candidate_edge_ids()
+        src, dst = groovi_graph.get_candidate_edges()
         return dgl_graph, src, dst, labels
+
 
 class StaticDatasetGraphClassification(StaticDataset):
     def __init__(self, config):
@@ -88,15 +124,18 @@ class StaticDatasetGraphClassification(StaticDataset):
         label_to_int = {}
         labels = []
         self.num_classes = None
-        
+
         for graph in self.graphs:
             genome_info = GenomeInfo(graph.get_info_path())
             label_value = genome_info.get_label(label_key)
 
             if self.num_classes is None:
-                self.num_classes = genome_info.config_data[label_key]['num_classes']
+                self.num_classes = genome_info.config_data[label_key]["num_classes"]
             else:
-                assert self.num_classes == genome_info.config_data[label_key]['num_classes'], f"Number of classes for label '{label_key}' inconsistent across graphs."
+                assert (
+                    self.num_classes
+                    == genome_info.config_data[label_key]["num_classes"]
+                ), f"Number of classes for label '{label_key}' inconsistent across graphs."
 
             if label_value not in label_to_int:
                 label_to_int[label_value] = len(label_to_int)
@@ -109,13 +148,16 @@ class StaticDatasetGraphClassification(StaticDataset):
         dgl_graph = groovi_graph.get_dgl_graph()
         label = self.labels[index]
         return dgl_graph, label
-    
+
     def get_num_classes(self):
         return self.num_classes
-    
-'''
+
+
+"""
 Streaming Dataset(s)
-'''
+"""
+
+
 class StreamingDataset(IterableDataset):
     def __init__(self, config: Config, extraction_fn: Callable = None):
         super().__init__()
@@ -127,18 +169,25 @@ class StreamingDataset(IterableDataset):
         if isinstance(self.config, GenerateConfig):
             graphs: list[GrooviGraph] = GrooviGraph.from_config(self.config)
             if self.config.split_by_connected_components:
-                graphs = sum([GrooviGraph.split_by_components(graph) for graph in graphs], [])
+                graphs = sum(
+                    [GrooviGraph.split_by_components(graph) for graph in graphs], []
+                )
             yield from self._graph_generator(graphs)
             logging.info(f"Generated and saving {len(graphs)} graphs.")
             self.handler.add_graphs(graphs)
             self.handler.save()
-                
-        elif isinstance(self.config, CallConfig) or isinstance(self.config, InferenceMotifConfig):
+
+        elif isinstance(self.config, CallConfig) or isinstance(
+            self.config, InferenceMotifConfig
+        ):
             # if cache_graphs, save the generated graphs
             for graph_path in self.config.graph_paths:
-                loaded_graphs = self.handler.load(graph_path, store=self.config.cache_graphs)
+                loaded_graphs = self.handler.load(graph_path)
                 yield from self._graph_generator(loaded_graphs)
-            if self.config.cache_graphs: self.handler.save()
+            if self.config.cache_graphs:
+                self.handler.save()
+
+            # TODO: load from bams
 
         # ... add support for other stremaing types types [URLs, multiple BAMs, etc.] ...
 
@@ -149,4 +198,4 @@ class StreamingDataset(IterableDataset):
                     yield subgraph
         else:
             for graph in graphs:
-                yield graph 
+                yield graph

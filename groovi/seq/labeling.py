@@ -1,73 +1,83 @@
 from groovi.seq.constants import *
+from groovi.seq.constants import *
+from groovi.seq.intervals import GenomeInterval
 from groovi.seq.io import *
 
 import numpy as np
+from pysam import VariantFile
 from scipy.spatial import KDTree
+from typing import Union
 
-'''
-Groovi specific VCF processing, adaptable to future labeling needs
-'''
-class AdjRecord:
-    def __init__(self, vcf_record: VCFRecord):
-        self.vcf_record = vcf_record
-        self.start = vcf_record.start
-        self.stop = vcf_record.stop
+###############################################################
+# Structures for record keeping
+###############################################################
 
-        # TODO: change depending on label
-        self.label = SV_CLASS_TO_ID_FN(vcf_record.get_sv_type())
+def get_intervals_from_VCF(vcf_path: str) -> list[GenomeInterval]:
+    '''
+    Convert a VCF file to a list of GenomeIntervals
 
-    def get_start_pos(self):
-        return self.start
+    Expects the following INFO fields:
+    - END: int, end position of the variant
+    - END_CHROM: str, target chromosome of the variant
+    - ORIENTATION: str, one of 'LR', 'RL', 'LL', '
+    '''
+    vcf_in = VariantFile(vcf_path)
+    intervals = []
+    for record in vcf_in.fetch():
+        source_chrom = record.chrom
+        start = record.start
+        sv_class = record.id
+
+        info = record.info
+        end = record.stop
+        target_chrom = info.get('END_CHROM', source_chrom) if 'END_CHROM' in info else source_chrom
+        orientation = ReadAlignmentOrientation(info['ORIENTATION'].value) if 'ORIENTATION' in info else None
+
+        interval = GenomeInterval(source_chrom, target_chrom, start, end, sv_class=sv_class, orientation=orientation)
+        intervals.append(interval)
+
+    return intervals
     
-    def get_target_pos(self):
-        return self.stop
+###############################################################
+# Structures for querying
+###############################################################
 
-    def get_start_chrom(self) -> str:
-        return self.vcf_record.chrom
-
-    def get_target_chrom(self) -> str:
-        return self.vcf_record.target_chrom
-
-    def get_label(self):
-        return self.label
-
-    def __repr__(self):
-        return f'AdjRecord({self.vcf_record.sv_id}, {self.vcf_record.chrom}:{self.start}-{self.stop}, {self.vcf_record.target_chrom}, {self.vcf_record.sv_type})'
-
-class AdjRecordContainer:
-    def __init__(self, vcf_record_container: VCFRecordContainer):
-        self.edges = []
-        for record in vcf_record_container.get_records():
-            edge_record = AdjRecord(record)
-            self.edges.append(edge_record)
-        
-    def get_adj_records(self):
-        return self.edges    
-    
-'''
-Structures for querying Groovi specific VCF Records
-'''
 class VCF_KDTree:
-    def __init__(self, vcf_path: str):
-        edge_record_container = AdjRecordContainer(VCFRecordContainer(vcf_path))
-        self.edges = edge_record_container.get_adj_records()
-        coordinates = np.array([[rec.start, rec.stop] for rec in self.edges])
-        self.kdtree = KDTree(coordinates)
+    """
+    Datastructure for efficient top-1 ofg top-k interval querying by L2 distance of (start, end) points.
 
-    def query_top_label(self, chrom: str, chrom_target: str, query: np.ndarray, k: int = 5, return_distance = False) -> list[VCFRecord]:
+    Includes ability to filter by split alignment orientation by
+    - maximum distance
+    - chromosome
+    - split alignment orientation
+    """
+    def __init__(self, vcf_path: str):
+        self.intervals: list[GenomeInterval] = get_intervals_from_VCF(vcf_path)
+        self.positions = np.array([[interval.get_start_pos(), interval.get_end_pos()] for interval in self.intervals])
+        self.kdtree = KDTree(self.positions)
+
+    def query_top_label(self, query: np.ndarray, start_chrom: str, end_chrom: str, k: int = 5, split_alignmnet_orientation = None, return_distance = False, max_distance = 100) -> Union[tuple[str, int], str]:
         # Query the KDTree for the top k records within a certain distance
         distances, indices = self.kdtree.query(query, k=k)
         # TODO ... other filters (OP type, head/tail, ...)
-        # ie indices = [i for i in indices if self.edges[i].get_start_chrom() == chrom and self.edges[i].get_target_chrom() == chrom_target]
-        filtered_records = [self.edges[i] for i in indices]
+        # Filter by chromosome
+        indices = [i for i in indices if self.intervals[i].start_chrom == start_chrom and self.intervals[i].end_chrom == end_chrom]
 
-        # TODO: handle no matches
-        if len(filtered_records) == 0:
-            raise ValueError("No matching records found in VCF for the given query.")
-        
-        label = filtered_records[0].get_label()
+        # filter by max distance
+        indices = [i for i, d in zip(indices, distances) if d <= max_distance]
 
-        if return_distance:
-            return label, distances[0]
+        # Filter by orientation
+        if split_alignmnet_orientation is not None:
+            indices = [i for i in indices if self.intervals[i].orientation == split_alignmnet_orientation]
+
+        filtered_intervals = [self.intervals[i] for i in indices]
+
+        top_sv_label = 'NEG'
+        lowest_distance = float('inf')
+
+        if len(filtered_intervals) > 0:
+            top_sv_label = best_interval.sv_class
+            best_interval = filtered_intervals[0]
+            lowest_distance = distances[0]
         
-        return label
+        return (top_sv_label, lowest_distance) if return_distance else top_sv_label

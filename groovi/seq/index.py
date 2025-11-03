@@ -25,6 +25,9 @@ class Segment:
         return self.end_pos
 
 class AdjIndex:
+    """
+    Datastructure to store and cluster genome adjacencies
+    """
     def __init__(self, config, edges: list[Edge]):
         self.config = config
         self.fai_index = ChrFAIndex.load(config.fai)
@@ -174,7 +177,7 @@ class AdjIndex:
     def get_adjacencies(self) -> list[Edge]:
         adjacencies: list[Edge] = []
         for (ref1, ref2), orientation, (chrom1, chrom2), evidence, edge_type, junction_source in zip(self.adj_index['ref_positions'], self.adj_index['orientations'], self.adj_index['chroms'], self.adj_index['evidence'], self.adj_index['edge_types'], self.adj_index['junction_sources']):
-            adjacencies.append(Edge(chrom1, chrom2, ref1, ref2, JunctionSource(junction_source), edge_type, Laterality(orientation), evidence))
+            adjacencies.append(Edge(chrom1, chrom2, ref1, ref2, JunctionSource(junction_source), edge_type, ReadAlignmentOrientation(orientation), evidence))
         return adjacencies
 
     def _local_to_global(self, local_refs: np.ndarray, chr_names: np.ndarray, prefix_sum: dict[int, int]) -> np.ndarray:

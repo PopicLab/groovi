@@ -3,7 +3,7 @@ from groovi.seq.io import ChrFAIndex
 
 from collections import OrderedDict
 
-class Laterality(Enum):
+class ReadAlignmentOrientation(Enum):
     LR = 'LR'
     RL = 'RL'
     LL = 'LL'
@@ -11,7 +11,7 @@ class Laterality(Enum):
 
 class Edge:
     def __init__(self, chrom1: str, chrom2: str, pos1: int, pos2: int,
-                 source: JunctionSource, edge_type: EdgeFeature, orientation: Laterality, evidence: int):
+                 source: JunctionSource, edge_type: EdgeFeature, orientation: ReadAlignmentOrientation, evidence: int):
         self.chrom1 = chrom1
         self.chrom2 = chrom2
         self.pos1 = pos1
@@ -27,7 +27,17 @@ class Edge:
     def get_edge_type(self) -> EdgeFeature:
         return self.edge_type
 
+# TODO: add cues to signal extractor
 class SignalExtractor:
+    """
+    Extracts signals from alignment data for downstream representation building and variant calling.
+
+    Signals extracted include adjacencies from split alignments and range queries for features across genome intervals.
+    SignalExtractor also records chromosome information from fasta index.
+
+    Args:
+        config (Config): yaml configuration file that contains fai, bam/adj
+    """
     def __init__(self, config):
         self.config = config
         self.fai_index: ChrFAIndex = ChrFAIndex.load(config.fai, all=True)
@@ -74,16 +84,16 @@ class SignalExtractor:
                     edge_type, orientation = None, None
                     if order == SegmentOrder.kOrd12 and segment_orientation == SegmentOrientation.kStrandMatch:
                         edge_type = EdgeFeature.ORD12
-                        orientation = Laterality.LR
+                        orientation = ReadAlignmentOrientation.LR
                     elif order == SegmentOrder.kOrd21 and segment_orientation == SegmentOrientation.kStrandMatch:
                         edge_type = EdgeFeature.ORD21
-                        orientation = Laterality.RL
+                        orientation = ReadAlignmentOrientation.RL
                     elif segment_orientation == SegmentOrientation.kStrandFlipRR:
                         edge_type = EdgeFeature.STRAND_FLIP
-                        orientation = Laterality.RR
+                        orientation = ReadAlignmentOrientation.RR
                     elif segment_orientation == SegmentOrientation.kStrandFlipLL:
                         edge_type = EdgeFeature.STRAND_FLIP
-                        orientation = Laterality.LL
+                        orientation = ReadAlignmentOrientation.LL
 
                     evidence = int(data_parts[7])
 
