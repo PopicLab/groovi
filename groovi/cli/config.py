@@ -1,3 +1,5 @@
+from groovi.seq.io import *
+
 import datetime
 import logging
 import os
@@ -6,6 +8,19 @@ import shutil
 import sys
 import torch
 import yaml
+
+SHARED_DEFAULTS = {
+    'logging_level': "INFO",
+    "seed": None,
+    "num_dgl_cores": None
+}
+
+GENERATE_DEFAULTS = {
+    'save_graphs': True,
+    'visualize_graphs': False,
+    'cluster_radius': 10,
+    'cluster_support_threshold': 2
+}
 
 MODEL_SPECIFICATIONS = [
     "ht_emb_dim",
@@ -16,70 +31,65 @@ MODEL_SPECIFICATIONS = [
     "normalize",
 ]
 
-INIT_SPECIFICATIONS = [
-    "seed",
-    "num_cores",  # limiting dgl's cpu usage
-    "logging",
-]
+GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
 
 class Config:
-    def __init__(self, config_yaml: str):
-        self.experiment_dir = str(Path(config_yaml).parent.resolve())
+    def __init__(self, config_yaml):
         with open(config_yaml, "r") as file:
-            config_data = yaml.safe_load(file)
+            config_data = yaml.load(file, Loader=yaml.FullLoader)
         self.__dict__.update(config_data)
-        self.enforced_params = []
+        self.validate_params()
 
-        # setup logging
-        self.log_file = os.path.join(self.experiment_dir, "main.log")
-        logging.basicConfig(
-            level=self.logging,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            handlers=[
-                logging.FileHandler(self.log_file, mode="w"),
-                logging.StreamHandler(),
-            ],
-        )
+        # -------- setup output directory structure
+        self.experiment_dir = str(Path(config_yaml).parent.resolve())
+        self.log_dir = self.experiment_dir + "/logs/"
+        Path(self.log_dir).mkdir(parents=True, exist_ok=True)
 
-    def _validate_params(self):
-        for param_name in set(self.enforced_params):
-            assert hasattr(
-                self, param_name
-            ), f"Parameter '{param_name}' is missing in the configuration"
+        # -------- setup logging
+        self.log_file = self.log_dir + 'main.log'
+        logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.getLevelName(self.logging_level),
+                            handlers=[logging.FileHandler(self.log_file, mode='w'), logging.StreamHandler(sys.stdout)])
 
-    def __repr__(self):
-        return "\n".join(
-            f"\t {key}: {value}"
-            for key, value in self.__dict__.items()
-            if not key.startswith("_")
-        )
+        # -------- setup shared data/model configs
+        #self.n_classes = len(self.classes)
+
+    def set_defaults(self, default_values_dict):
+        for k, v, in default_values_dict.items():
+            if not hasattr(self, k): self.__setattr__(k, v)
+
+    def validate_params(self):
+        for param_name in set(self.required_params):
+            assert hasattr(self, param_name), f"Parameter '{param_name}' is missing in the configuration"
+
+    def __str__(self):
+        s = "==== Config ====\n\t"
+        s += '\n\t'.join("{}: {}".format(k, v) for k, v in self.__dict__.items())
+        return s
 
 
 class GenerateConfig(Config):
-    def __init__(self, config_yaml: str):
+    def __init__(self, config_yaml):
+        self.set_defaults(GENERATE_DEFAULTS)
+        self.required_params = ["bam", "vcf", "fa"]
         super().__init__(config_yaml)
-        self.enforced_params = [
-            # data files
-            "bam",
-            "vcf",
-            "fai",
-            # groovi parameters
-            "cluster_radius",
-            "evidence_threshold",
-            # ... (add other params as needed)
-        ]
-        self._validate_params()
-        # directory setup
+
+        # -------- setup data inputs
+        self.fai = "%s.fai" % self.fa
+        self.fai_index = ChrFAIndex.load(self.fai)
+
+        # -------- setup the output directory structure
         self.graph_dir = os.path.join(self.experiment_dir, "graphs")
-        self.img_dir = os.path.join(self.experiment_dir, "visuals")
-        [shutil.rmtree(d, ignore_errors=True) for d in [self.graph_dir, self.img_dir]]
-        [os.makedirs(d, exist_ok=True) for d in [self.graph_dir, self.img_dir]]
-        self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
+        self.img_dir = os.path.join(self.experiment_dir, "vis")
+        Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.img_dir).mkdir(parents=True, exist_ok=True)
+        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
+
+        self.validate_params()
+        logging.info(self)
 
 
-# Edges
 class TrainConfig(Config):
-    def __init__(self, config_yaml: str):
+    def __init__(self, config_yaml):
         super().__init__(config_yaml)
         # ... Fill
         self.enforced_params = [
@@ -126,28 +136,6 @@ class TrainConfig(Config):
         self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
 
 
-class EvaluateConfig(Config):
-    def __init__(self, config_yaml: str):
-        super().__init__(config_yaml)
-        self.enforced_params = [
-            # data specifications
-            "graph_paths",
-            "transforms",
-            # model specifications
-            "model_path",
-            # Initialization
-            "seed",
-            "num_cores",  # limiting dgl's cpu usage
-            "logging",
-        ]  + MODEL_SPECIFICATIONS + INIT_SPECIFICATIONS
-        self._validate_params()
-        self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
-        self.img_dir = os.path.join(
-            self.experiment_dir, "visuals"
-        )  # plots, graph visualizations
-        [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.img_dir]]
-
-
 class TrainGraphConfig(TrainConfig):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
@@ -174,79 +162,3 @@ class CallConfig(Config):
             self.experiment_dir, "visuals"
         )  # plots, graph visualizations
         [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.img_dir]]
-
-
-# Motifs
-class TrainMotifConfig(Config):
-    def __init__(self, config_yaml: str):
-        super().__init__(config_yaml)
-        self.enforced_params = [
-            # data specifications
-            "train_graph_paths",
-            "validation_graph_paths",
-            "zygosity",
-            "transforms",
-            # extraction settings
-            "train_extraction",
-            "validation_extraction",
-            "train_extraction_params",
-            "validation_extraction_params",
-            # model specifications
-            "node_feature_dim",
-            "h_dim",
-            "num_rels",
-            "num_hidden_layers",
-            "normalize",
-            "pooling",
-            # training specifications
-            "num_epochs",
-            "device",
-            "batch_size",
-            "lr",
-            # validation specifications
-            "validate_interval"
-            # misc
-            "logging_level",
-            "visualize_every",
-        ]
-        self._validate_params()
-        # data directories
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.chk_dir = os.path.join(self.experiment_dir, "checkpoints")
-        self.log_dir = os.path.join(self.experiment_dir, "runs", timestamp)
-        self.data_dir = os.path.join(self.experiment_dir, "data")
-        # visualization directories
-        self.img_dir = os.path.join(self.experiment_dir, "visuals")
-        self.img_dir_graph = os.path.join(self.img_dir, "graphs")
-        self.img_dir_subgraph = os.path.join(self.img_dir, "subgraphs")
-        self.img_dir_plots = os.path.join(self.img_dir, "plots")
-        if self.visualize_every > 0:
-            [
-                shutil.rmtree(d, ignore_errors=True)
-                for d in [self.img_dir_graph, self.img_dir_subgraph]
-            ]
-        [
-            shutil.rmtree(d, ignore_errors=True)
-            for d in [self.chk_dir, self.img_dir_plots]
-        ]
-        [
-            os.makedirs(d, exist_ok=True)
-            for d in [
-                self.chk_dir,
-                self.log_dir,
-                self.data_dir,
-                self.img_dir,
-                self.img_dir_graph,
-                self.img_dir_subgraph,
-                self.img_dir_plots,
-            ]
-        ]
-
-
-class InferenceMotifConfig(Config):
-    def __init__(self, config_yaml: str):
-        super().__init__(config_yaml)
-        self.enforced_params = [
-            # data files
-            "graph_paths",
-        ]

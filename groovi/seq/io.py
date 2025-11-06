@@ -47,17 +47,6 @@ class ChrFAIndex:
     def get_chr_lengths(self) -> dict[int, int]:
         return {tid: self.get_chr_by_tid(tid).len for tid in self.tid2chr}
     
-    def get_chr_prefix_sums(self) -> dict[str, int]:
-        '''
-        Returns a dictionary mapping chromosome names to their starting positions in the genome.
-        '''
-        chr_lengths = self.get_chr_lengths()
-        chr_prefix_sums = OrderedDict({1: 0})  # start with first chromosome at position 0
-        for tid, chr in self.tid2chr.items():
-            if tid == 1: continue
-            chr_prefix_sums[tid] = chr_prefix_sums[tid-1] + chr_lengths[tid-1]
-        return chr_prefix_sums
-    
     def get_tid_to_str_conversion(self) -> dict[int, str]:
         return {tid: chr.name for tid, chr in self.tid2chr.items()}
 

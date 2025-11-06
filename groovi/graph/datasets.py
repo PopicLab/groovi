@@ -7,24 +7,35 @@ from groovi.seq.labeling import VCF_KDTree
 from groovi.seq.io import GenomeInfo
 from groovi.seq.constants import *
 
+import pickle
 import dgl
 import dgl.transforms as T
 import torch
 from torch.utils.data import IterableDataset, Dataset
-from typing import Callable
 import numpy as np
 
-"""
-Static Datasets
-"""
+
+class StreamingGraphDataset(IterableDataset):
+    def __init__(self, config: Config):
+        super().__init__()
+        self.config = config
+        self.handler = GraphHandler(self.config)
+
+    def save(self, graph) -> None:
+        graph_file_path = os.path.join(self.config.graph_dir, f"graph_full.pkl")
+        with open(graph_file_path, 'wb') as graph_file: pickle.dump(graph, graph_file)
+        with open(self.config.stats_file_path, 'w') as stats_file:
+            stats_file.write('\n'.join(f"{k}: {v}" for k, v in graph.get_stats().items()))
+
+    def __iter__(self):
+        graph = GrooviGraph.build(self.config)
+        if self.config.save_graphs: self.save(graph)
+        yield graph
 
 
 class StaticDataset(Dataset):
     def __init__(self, config):
         super().__init__()
-
-        # initialize
-        self.config = config
         self.config = config
         self.handler = GraphHandler(config)
         self.graphs: list[GrooviGraph] = sum(
@@ -82,7 +93,7 @@ class StaticDatasetEdgeClassification(StaticDataset):
                     graph.ndata["position"][src],
                     graph.ndata["position"][dst],
                 )
-                laterality = graph.get_laterality_by_node_ids(src.item(), dst.item())
+                laterality = NODE_TYPES_TO_ORIENTATION(src.item(), dst.item())
                 chrom1, chrom2 = graph.get_chr_names_by_node_ids(
                     [graph.ndata["chr"][src].item(), graph.ndata["chr"][dst].item()]
                 )
@@ -152,50 +163,3 @@ class StaticDatasetGraphClassification(StaticDataset):
     def get_num_classes(self):
         return self.num_classes
 
-
-"""
-Streaming Dataset(s)
-"""
-
-
-class StreamingDataset(IterableDataset):
-    def __init__(self, config: Config, extraction_fn: Callable = None):
-        super().__init__()
-        self.config = config
-        self.extraction_fn = extraction_fn
-        self.handler = GraphHandler(self.config)
-
-    def __iter__(self):
-        if isinstance(self.config, GenerateConfig):
-            graphs: list[GrooviGraph] = GrooviGraph.from_config(self.config)
-            if self.config.split_by_connected_components:
-                graphs = sum(
-                    [GrooviGraph.split_by_components(graph) for graph in graphs], []
-                )
-            yield from self._graph_generator(graphs)
-            logging.info(f"Generated and saving {len(graphs)} graphs.")
-            self.handler.add_graphs(graphs)
-            self.handler.save()
-
-        elif isinstance(self.config, CallConfig) or isinstance(
-            self.config, InferenceMotifConfig
-        ):
-            # if cache_graphs, save the generated graphs
-            for graph_path in self.config.graph_paths:
-                loaded_graphs = self.handler.load(graph_path)
-                yield from self._graph_generator(loaded_graphs)
-            if self.config.cache_graphs:
-                self.handler.save()
-
-            # TODO: load from bams
-
-        # ... add support for other stremaing types types [URLs, multiple BAMs, etc.] ...
-
-    def _graph_generator(self, graphs: list[GrooviGraph]):
-        if self.extraction_fn:
-            for graph in graphs:
-                for subgraph in self.extraction_fn(graph):
-                    yield subgraph
-        else:
-            for graph in graphs:
-                yield graph

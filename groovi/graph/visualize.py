@@ -1,4 +1,5 @@
 from groovi.seq.constants import *
+from groovi.graph.constants import *
 from groovi.graph.graphs import GrooviGraph
 
 from enum import Enum
