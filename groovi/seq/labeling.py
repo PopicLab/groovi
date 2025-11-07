@@ -56,7 +56,8 @@ class VCF_KDTree:
         self.positions = np.array([[interval.get_start_pos(), interval.get_end_pos()] for interval in self.intervals])
         self.kdtree = KDTree(self.positions)
 
-    def query_top_label(self, query: np.ndarray, start_chrom: str, end_chrom: str, k: int = 5, split_alignmnet_orientation = None, return_distance = False, max_distance = 100) -> Union[tuple[str, int], str]:
+    def query_top_label(self, query: np.ndarray, start_chrom: str, end_chrom: str, k: int = 5, orientation = None,
+                        return_distance = False, max_distance = 100) -> Union[tuple[str, int], str]:
         # Query the KDTree for the top k records within a certain distance
         distances, indices = self.kdtree.query(query, k=k)
         # TODO ... other filters (OP type, head/tail, ...)
@@ -67,8 +68,8 @@ class VCF_KDTree:
         indices = [i for i, d in zip(indices, distances) if d <= max_distance]
 
         # Filter by orientation
-        if split_alignmnet_orientation is not None:
-            indices = [i for i in indices if self.intervals[i].orientation == split_alignmnet_orientation]
+        if orientation is not None:
+            indices = [i for i in indices if self.intervals[i].orientation == orientation]
 
         filtered_intervals = [self.intervals[i] for i in indices]
 

@@ -7,6 +7,7 @@ from groovi.seq.io import ChrFAIndex
 import numpy as np
 from sklearn.cluster import DBSCAN
 from pycues import *
+import logging
 
 class SVSignalProcessor:
     @dataclass
@@ -27,6 +28,8 @@ class SVSignalProcessor:
         self.config = config
         self.cues_config = CuesConfig()
         self.cues_config.ref = config.fa
+        self.cues_config.max_alns_to_process = 100000
+        self.cues_config.n_threads = 20
         self.cues = Cues(self.cues_config)
 
     def get_aln_stats_for_range(self, segment: RefSegment):
@@ -36,10 +39,13 @@ class SVSignalProcessor:
 
     def extract_junctions(self, cluster=True):
         junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
-        if cluster: self.cluster_junctions(junctions)
+        logging.info("Total number of junctions: %d ", len(junctions))
+        if cluster:
+            junctions = self.cluster_junctions(junctions)
+            logging.info("Number of junctions after clustering: %d ", len(junctions))
         return junctions
 
-    def cluster_junctions(self, junctions) -> None:
+    def cluster_junctions(self, junctions):
         CENTROID_SHIFT_BY_ORIENTATION = {
             JOrientation.kLL: np.array([0, 0]), JOrientation.kLR: np.array([0, 1]),
             JOrientation.kRL: np.array([1, 0]), JOrientation.kRR: np.array([1, 1])
@@ -83,7 +89,7 @@ class SVSignalProcessor:
                         junctions .append(Junction(chr1=chr1, chr2=chr2,
                                                        pos1=centroid[0], pos2=centroid[1],
                                                        orientation=orientation,
-                                                       evidence_type=data.evidence_type[orientation_idx][i][0],
+                                                       evidence_type=data.evidence_type[orientation_idx[i]][0],
                                                        support=orientation_support[i]
                                                        ))
         return junctions
@@ -98,14 +104,21 @@ class SVSignalProcessor:
             chr2orientation[j.chr2].append(j.orientation.name[2])
         segments = []
         for chr_name in chr2pos:
-            end_pos = set()
             start_pos = set()
+            end_pos = set()
             for pos, orientation_at_bp in zip(chr2pos[chr_name], chr2orientation[chr_name]):
-                start_pos.add(pos + 1 if orientation_at_bp == 'L' else pos)
-                end_pos.add(pos if orientation_at_bp == 'L' else pos +  1)
+                if orientation_at_bp == 'L': end_pos.add(pos)
+                elif orientation_at_bp == 'R': start_pos.add(pos)
+
+            # for each break, create the other end of the edge
+            for L_pos in end_pos: start_pos.add(L_pos + 1)
+            for R_pos in start_pos: end_pos.add(R_pos - 1)
+
             # create entries for the start and end of chromosome
             start_pos.add(1)
             end_pos.add(self.config.fai_index.get_chr_by_name(chr_name).len)
+
             # sort and create segments
             segments.extend([RefSegment(chr_name, s, e) for s, e in zip(sorted(list(start_pos)), sorted(list(end_pos)))])
+        logging.info("Number of reference segments: %d ", len(segments))
         return segments

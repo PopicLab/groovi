@@ -26,12 +26,7 @@ def main(config_yaml):
 
     # ---------Data setup--------
     dataset = StreamingDataset(config)
-    data_loader = GraphDataLoader(
-        dataset,
-        batch_size=config.batch_size,
-        shuffle=False,
-        collate_fn=inference_collate_fn,
-    )
+    data_loader = GraphDataLoader(dataset, batch_size=config.batch_size, shuffle=False, collate_fn=inference_collate_fn)
 
     num_classes = len(SV_CLASSES)
 
@@ -68,7 +63,7 @@ def main(config_yaml):
     flattened_pos_starts = []
     flattened_pos_ends = []
     for graph in dataset:
-        start_chrs, end_chrs, pos_starts, pos_ends = graph.get_candidate_info()
+        start_chrs, end_chrs, pos_starts, pos_ends = None #NO! must correlate with prediction directly #graph.get_candidate_info()
         flattened_chr_starts.extend(start_chrs)
         flattened_chr_ends.extend(end_chrs)
         flattened_pos_starts.extend(pos_starts)

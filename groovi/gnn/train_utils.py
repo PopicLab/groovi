@@ -1,469 +1,76 @@
-from groovi.graph.graphs import GrooviGraph
-
-import dgl
+# from torch.utils.tensorboard import SummaryWriter
 import logging
-import os
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
+from sklearn.metrics import *
 import torch
-from typing import Tuple
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
-############################################################
-# Edge Classification Training Utilities
-############################################################
-
-
-def train_and_validate_edge_classification(
-    model,
-    train_dataloader,
-    val_dataloader,
-    optimizer,
-    loss_fn,
-    device,
-    num_epochs,
-    validation_interval,
-    tensorboard_writer,
-    model_save_path,
-    unique_labels,
-) -> Tuple[torch.nn.Module, dict]:
-    """
-    Trains and validates a model with rich progress bars, including the current epoch number.
-    """
-
-    # Define the rich progress bar for the main training epochs
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        "|",
-        TimeRemainingColumn(),
-        "|",
-        TextColumn("[progress.description]{task.fields[loss]}"),
-    ) as progress:
-        # Create a task for the main epoch loop
-        epoch_task = progress.add_task(
-            "[green]Training...", total=num_epochs, loss="N/A"
-        )
-
-        train_loss, val_loss = 0.0, 0.0
-        for epoch in range(num_epochs):
-            # Validate
-            if epoch % validation_interval == 0:
-                all_metrics, tensorboard_metrics = (
-                    validate_one_epoch_edge_classification(
-                        model, val_dataloader, loss_fn, device, unique_labels
-                    )
-                )
-
-                log_validation_metrics(
-                    epoch, tensorboard_metrics, all_metrics, tensorboard_writer
-                )
-
-                torch.save(
-                    model.state_dict(),
-                    os.path.join(model_save_path, f"model_epoch_{epoch}.pth"),
-                )
-                val_loss = all_metrics["AvgLoss"]
-                progress.update(
-                    epoch_task,
-                    loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]",
-                )
-
-            # Train
-            train_loss = train_one_epoch_edge_classification(
-                model, train_dataloader, optimizer, loss_fn, device
-            )
-            progress.update(
-                epoch_task,
-                advance=1,
-                description=f"[green]Training Epoch {epoch + 1}/{num_epochs}[/green]",
-                loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]",
-            )
-            tensorboard_writer.add_scalar("Train/AvgLoss", train_loss, epoch)
-
-    # ------ Final Steps ------
-    all_metrics, tensorboard_metrics = validate_one_epoch_edge_classification(
-        model, val_dataloader, loss_fn, device, unique_labels
-    )
-    for key, value in tensorboard_metrics.items():
-        tensorboard_writer.add_scalar(f"Final/{key}", value, num_epochs)
-
-    # TODO: use misc_metrics (e.g., confusion matrix) for visualization
-    tensorboard_writer.close()
-    return model, (all_metrics, tensorboard_metrics)
-
-
-def train_one_epoch_edge_classification(
-    model, dataloader, optimizer, loss_fn, device
-) -> float:
-    model.train()
-    total_loss = 0
-    for bg, bsrc, bdst, blabels in dataloader:
-        bg, bsrc, bdst, blabels = (
-            bg.to(device),
-            bsrc.to(device),
-            bdst.to(device),
-            blabels.to(device),
-        )
-        optimizer.zero_grad()
-        logits = model(bg, bsrc, bdst)
-        loss = loss_fn(logits, blabels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-
-    return total_loss / len(dataloader)
-
-
-def validate_one_epoch_edge_classification(
-    model, dataloader, loss_fn, device, unique_labels
-) -> tuple[dict, dict]:
-    """
-    Returns a tuple of (all_metrics, logging_metrics)
-    all_metrics: dict of all metrics, including misc metrics like confusion matrix
-    logging_metrics: dict of metrics to log to tensorboard
-    """
-    model.eval()
-
-    total_loss = 0
-
-    labels, predicted = [], []
-    with torch.no_grad():
-        for bg, bsrc, bdst, blabels in dataloader:
-            bg, bsrc, bdst, blabels = (
-                bg.to(device),
-                bsrc.to(device),
-                bdst.to(device),
-                blabels.to(device),
-            )
-            logits = model(bg, bsrc, bdst)
-            loss = loss_fn(logits, blabels)
-            total_loss += loss.item()
-            bpredicted = torch.argmax(logits, dim=1)
-
-            labels.append(blabels)
-            predicted.append(bpredicted)
-
-    # TODO: collect metrics
-    labels = torch.cat(labels, dim=0).cpu()
-    predicted = torch.cat(predicted, dim=0).cpu()
-    correct = (predicted == labels).sum().item()
-    total = labels.size(0)
-
-    logging_metrics = {
-        "AvgLoss": total_loss / len(dataloader),
-        "Accuracy": correct / total,
-        # global metrics across all classes
-        "Precision": precision_score(
-            labels, predicted, average="micro", zero_division=0
-        ),
-        "Recall": recall_score(labels, predicted, average="micro", zero_division=0),
-        "F1": f1_score(labels, predicted, average="micro", zero_division=0),
-    }
-
-    misc_metrics = {
-        "ConfusionMatrix": confusion_matrix(labels, predicted, labels=unique_labels),
-        # global metrics separated by class
-        "Precision-by-class": precision_score(
-            labels, predicted, average=None, zero_division=0, labels=unique_labels
-        ),
-        "Recall-by-class": recall_score(
-            labels, predicted, average=None, zero_division=0, labels=unique_labels
-        ),
-        "F1-by-class": f1_score(
-            labels, predicted, average=None, zero_division=0, labels=unique_labels
-        ),
-    }
-
-    all_metrics = logging_metrics | misc_metrics
-    return all_metrics, logging_metrics
-
-
-def predict_classes(model, dataloader, device, top_k: int = None) -> torch.Tensor:
-    """
-    Outputs the integer predicted classes. if top_k is not None, return (predicted, top_k_probabilities, top_k_predicted)
-    """
-    model.eval()
-
-    predicted = []
-    if top_k:
-        top_k_probabilities = []
-        top_k_predicted = []
-
-    with torch.no_grad():
-        for bg, bsrc, bdst in dataloader:
-            bg, bsrc, bdst = (
-                bg.to(device),
-                bsrc.to(device),
-                bdst.to(device),
-            )
-            logits = model(bg, bsrc, bdst)
-            bpredicted = torch.argmax(logits, dim=1)
-
-            predicted.append(bpredicted)
-
-            if top_k:
-                bprobs = torch.softmax(bpredicted)
-                btopk_probs, btopk_classes = torch.topk(bprobs, top_k)
-                top_k_probabilities.append(btopk_probs)
-                top_k_predicted.append(btopk_classes)
-
-    predicted = torch.cat(predicted, dim=0)
-
-    if not top_k:
-        return predicted
-
-    return predicted, torch.cat(top_k_predicted), torch.cat(top_k_probabilities)
-
-
-############################################################
-# Batching utils
-############################################################
-
-
-def edge_classification_collate_fn(batch_items) -> tuple:
-    """
-    Custom collate_fn for DGL graphs with source node IDs, destination node IDs, and labels.
-    Args:
-        batch_items (list): A list of tuples, where each tuple is
-                            (graph, src_ids_local, dst_ids_local, labels).
-
-    Returns:
-        tuple: (batched_graph, batched_src_ids, batched_dst_ids, batched_labels)
-            - batched_graph (dgl.DGLGraph): All graphs in the batch combined.
-            - batched_src_ids (torch.LongTensor): source node IDs per graph.
-            - batched_dst_ids (torch.LongTensor): destination node IDs per graph.
-            - batched_labels (torch.LongTensor): Labels for all pairs.
-    """
-    # Unzip the batch items
-    graphs, src_ids_list, dst_ids_list, labels_list = zip(*batch_items)
-
-    # batch graphs
-    batched_graph = dgl.batch(graphs)
-
-    # batch edge ids
-    batched_src_ids = []
-    batched_dst_ids = []
-
-    node_offset = 0
-
-    for i, g in enumerate(graphs):
-        batched_src_ids.append(src_ids_list[i] + node_offset)
-        batched_dst_ids.append(dst_ids_list[i] + node_offset)
-        node_offset += g.num_nodes()
-
-    batched_src_ids = torch.cat(batched_src_ids, dim=0)
-    batched_dst_ids = torch.cat(batched_dst_ids, dim=0)
-
-    # batch labels
-    batched_labels = torch.cat(labels_list, dim=0)
-
-    return batched_graph, batched_src_ids, batched_dst_ids, batched_labels
-
-
-def inference_collate_fn(groovi_graphs: list[GrooviGraph]) -> tuple:
-    """
-    Custom collate_fn for groovi graphs, unpacks them into dgl graphs and src/dst candidates
-    """
-    # Unzip the batch items
-    batch_items = [
-        ((groovi_graph.get_dgl_graph(),) + groovi_graph.get_candidate_edges())
-        for groovi_graph in groovi_graphs
-    ]
-    graphs, src_ids_list, dst_ids_list = zip(*batch_items)
-
-    # batch graphs
-    batched_graph = dgl.batch(graphs)
-
-    # batch edge ids
-    batched_src_ids = []
-    batched_dst_ids = []
-
-    node_offset = 0
-
-    for i, g in enumerate(graphs):
-        batched_src_ids.append(src_ids_list[i] + node_offset)
-        batched_dst_ids.append(dst_ids_list[i] + node_offset)
-        node_offset += g.num_nodes()
-
-    batched_src_ids = torch.cat(batched_src_ids, dim=0)
-    batched_dst_ids = torch.cat(batched_dst_ids, dim=0)
-
-    # batch labels
-
-    return batched_graph, batched_src_ids, batched_dst_ids
-
-
-############################################################
-# Graph Classification Training Utilities
-############################################################
-
-
-def train_and_validate_graph_classification(
-    model,
-    train_dataloader,
-    val_dataloader,
-    optimizer,
-    loss_fn,
-    device,
-    num_epochs,
-    validation_interval,
-    tensorboard_writer,
-    model_save_path,
-    unique_labels,
-) -> Tuple[torch.nn.Module, dict]:
-    """
-    Trains and validates a model with rich progress bars, including the current epoch number.
-    """
-    model = model.to(device)
-
-    # Define the rich progress bar for the main training epochs
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        "|",
-        TimeRemainingColumn(),
-        "|",
-        TextColumn("[progress.description]{task.fields[loss]}"),
-    ) as progress:
-        # Create a task for the main epoch loop
-        epoch_task = progress.add_task(
-            "[green]Training...", total=num_epochs, loss="N/A"
-        )
-
-        train_loss, val_loss = 0.0, 0.0
-        for epoch in range(num_epochs):
-            # Validate
-            if epoch % validation_interval == 0:
-                all_metrics, tensorboard_metrics = (
-                    validate_one_epoch_graph_classification(
-                        model, val_dataloader, loss_fn, device, unique_labels
-                    )
-                )
-
-                log_validation_metrics(
-                    epoch, tensorboard_metrics, all_metrics, tensorboard_writer
-                )
-
-                torch.save(
-                    model.state_dict(),
-                    os.path.join(model_save_path, f"model_epoch_{epoch}.pth"),
-                )
-                val_loss = all_metrics["AvgLoss"]
-                progress.update(
-                    epoch_task,
-                    loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]",
-                )
-
-            # Train
-            train_loss = train_one_epoch_graph_classification(
-                model, train_dataloader, optimizer, loss_fn, device
-            )
-            progress.update(
-                epoch_task,
-                advance=1,
-                description=f"[green]Training Epoch {epoch + 1}/{num_epochs}[/green]",
-                loss=f"[yellow]Train Loss: {train_loss:.4f}[/yellow] | [cyan]Val Acc: {val_loss:.4f}[/cyan]",
-            )
-            tensorboard_writer.add_scalar("Train/AvgLoss", train_loss, epoch)
-
-    # ------ Final Steps ------
-    all_metrics, tensorboard_metrics = validate_one_epoch_graph_classification(
-        model, val_dataloader, loss_fn, device, unique_labels
-    )
-    for key, value in tensorboard_metrics.items():
-        tensorboard_writer.add_scalar(f"Final/{key}", value, num_epochs)
-
-    return model, (all_metrics, tensorboard_metrics)
-
-
-def train_one_epoch_graph_classification(
-    model, dataloader, optimizer, loss_fn, device
-) -> float:
-    model.train()
-    total_loss = 0
-    for bg, blabels in dataloader:
-        bg, blabels = bg.to(device), blabels.to(device)
-        optimizer.zero_grad()
-        logits = model(bg)
-        loss = loss_fn(logits, blabels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-
-    return total_loss / len(dataloader)
-
-
-def validate_one_epoch_graph_classification(
-    model, dataloader, loss_fn, device, unique_labels
-) -> dict:
-    model.eval()
-
-    total_loss = 0
-
-    labels, predicted = [], []
-    with torch.no_grad():
-        for bg, blabels in dataloader:
-            bg, blabels = bg.to(device), blabels.to(device)
-            logits = model(bg)
-            loss = loss_fn(logits, blabels)
-            total_loss += loss.item()
-            _, bpredicted = torch.max(logits, dim=1)
-
-            labels.append(blabels)
-            predicted.append(bpredicted)
-
-    labels = torch.cat(labels, dim=0).cpu()
-    predicted = torch.cat(predicted, dim=0).cpu()
-    correct = (predicted == labels).sum().item()
-    total = labels.size(0)
-
-    logging_metrics = {
-        "AvgLoss": total_loss / len(dataloader),
-        "Accuracy": correct / total,
-        "Precision": precision_score(
-            labels, predicted, average="micro", zero_division=0
-        ),
-        "Recall": recall_score(labels, predicted, average="micro", zero_division=0),
-        "F1": f1_score(labels, predicted, average="micro", zero_division=0),
-        # TODO: ...add more metrics if necessary
-    }
-
-    misc_metrics = {
-        # TODO: add more metrics if necessary, consider local logging
-        "ConfusionMatrix": confusion_matrix(labels, predicted, labels=unique_labels),
-        "Precision-by-class": precision_score(
-            labels, predicted, average=None, zero_division=0, labels=unique_labels
-        ),
-        "Recall-by-class": recall_score(
-            labels, predicted, average=None, zero_division=0, labels=unique_labels
-        ),
-        "F1-by-class": f1_score(
-            labels, predicted, average=None, zero_division=0, labels=unique_labels
-        ),
-    }
-
-    all_metrics = logging_metrics | misc_metrics
-    return all_metrics, logging_metrics
-
-
-def log_validation_metrics(
-    epoch, tensorboard_metrics=None, all_metrics=None, writer=None
-) -> None:
-    if tensorboard_metrics is not None:
-        for key, value in tensorboard_metrics.items():
-            writer.add_scalar(f"Validation/{key}", value, epoch)
-
-    if all_metrics is not None:
-        logging.info(f"===Epoch {epoch} Metrics===")
-        for key, value in all_metrics.items():
+###########################
+# Training Utilities
+###########################
+class MetricTracker:
+    def __init__(self, epoch, config):
+        self.epoch = epoch
+        #self.tensorboard_writer = SummaryWriter(log_dir=config.tensorboard_dir)
+
+    def log_train_loss(self, training_loss):
+        # self.tensorboard_writer.add_scalar("Train|AvgLoss", training_loss, self.epoch)
+        logging.info(f'======= Train    | Epoch {self.epoch} | {training_loss}')
+
+    def log_validation_metrics(self, metrics):
+        # for key, value in metrics.items():
+        #     self.tensorboard_writer.add_scalar(f"Validation|{key}", value, self.epoch)
+        validation_loss = metrics["AvgLoss"]
+        logging.info(f"******* Validate | Epoch {self.epoch} | {validation_loss}")
+        for key, value in metrics.items():
+            if key in ["ConfusionMatrix", "AvgLoss"]: continue
             logging.info(f"{key} = {value}")
+        # TODO: plot confusion matrix
+
+######################
+# Edge Classification
+######################
+
+def train(epoch, config, model, dataloader, optimizer):
+    model.train()
+    total_loss = 0
+    for graph, src, dst, labels in dataloader:
+        graph, src, dst, labels = (graph.to(config.device), src.to(config.device),
+                                   dst.to(config.device), labels.to(config.device))
+        optimizer.zero_grad()
+        logits = model(graph, src, dst)
+        loss = torch.nn.CrossEntropyLoss()(logits.permute(0, 2, 1), labels)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    MetricTracker(epoch, config).log_train_loss(total_loss / len(dataloader))
+
+def validate(epoch, config, model, dataloader):
+    model.eval()
+    total_loss = 0
+    labels, predicted = [], []
+    with torch.no_grad():
+        for graph, src, dst, label in dataloader:
+            graph, src, dst, label = (graph.to(config.device), src.to(config.device),
+                                      dst.to(config.device), label.to(config.device))
+            logits = model(graph, src, dst)
+            total_loss += torch.nn.CrossEntropyLoss()(logits.permute(0, 2, 1), label).item()
+            labels.append(label)
+            predicted.append(torch.argmax(logits, dim=-1))
+
+    labels = torch.cat(labels).cpu()
+    predicted = torch.cat(predicted).cpu()
+    labels = labels.flatten()
+    predicted = predicted.flatten()
+    class_labels = list(range(config.n_classes))
+    metrics = {
+        "AvgLoss": total_loss / len(dataloader),
+        "Accuracy": (predicted == labels).float().mean().item(),
+        "Precision": precision_score(labels, predicted, average="micro", zero_division=0),
+        "Recall": recall_score(labels, predicted, average="micro", zero_division=0),
+        "F1": f1_score(labels, predicted, average="micro", zero_division=0),
+        "ConfusionMatrix": confusion_matrix(labels, predicted, labels=class_labels),
+        "Precision-by-class": precision_score(labels, predicted, average=None, zero_division=0, labels=class_labels),
+        "Recall-by-class": recall_score(labels, predicted, average=None, zero_division=0, labels=class_labels),
+        "F1-by-class": f1_score(labels, predicted, average=None, zero_division=0, labels=class_labels),
+    }
+    MetricTracker(epoch, config).log_validation_metrics(metrics)
+    return predicted

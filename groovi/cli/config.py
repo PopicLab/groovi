@@ -1,5 +1,5 @@
 from groovi.seq.io import *
-
+import groovi.seq.sv
 import datetime
 import logging
 import os
@@ -8,11 +8,16 @@ import shutil
 import sys
 import torch
 import yaml
+from groovi.utils.utils import seed_everything, limit_cores
+from groovi.graph.constants import *
 
 SHARED_DEFAULTS = {
     'logging_level': "INFO",
-    "seed": None,
-    "num_dgl_cores": None
+    'class_set': "CPX12",
+    "seed": 12345,
+    "num_dgl_cores": None,
+    "n_cpus": 1,
+    "gpu_ids": [],
 }
 
 GENERATE_DEFAULTS = {
@@ -21,6 +26,17 @@ GENERATE_DEFAULTS = {
     'cluster_radius': 10,
     'cluster_support_threshold': 2
 }
+
+MODEL_DEFAULTS = {
+    "pretrained_model": None,
+    "ht_emb_dim": 2,
+    "hidden_dim": 10,
+    "num_convolutions": 3,
+    "num_hidden_layers": 3,
+    "update": "WConcat",
+    "normalize": None
+}
+
 
 MODEL_SPECIFICATIONS = [
     "ht_emb_dim",
@@ -32,6 +48,20 @@ MODEL_SPECIFICATIONS = [
 ]
 
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
+TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS}
+TRAIN_DEFAULTS.update({
+    "transforms": [],
+    "num_epochs": 10,
+    "validation_ratio": 0.5,
+    "batch_size": 1,
+    'report_interval': 50,
+    "graph_visualization_interval": 10, # post transformation visualization frequency
+    'model_checkpoint_interval': 10000,
+    'learning_rate': 0.0001,
+    'learning_rate_decay_interval': 5,
+    'learning_rate_decay_factor': 1,
+
+})
 
 class Config:
     def __init__(self, config_yaml):
@@ -51,7 +81,10 @@ class Config:
                             handlers=[logging.FileHandler(self.log_file, mode='w'), logging.StreamHandler(sys.stdout)])
 
         # -------- setup shared data/model configs
-        #self.n_classes = len(self.classes)
+        self.classes = groovi.seq.sv.TYPE_SET_TO_TYPES[groovi.seq.sv.SVTypeSet[self.class_set]]
+        self.n_classes = len(self.classes)
+        self.n_node_features = len(NodeFeature)
+        self.n_edge_types = len(EdgeFeature)
 
     def set_defaults(self, default_values_dict):
         for k, v, in default_values_dict.items():
@@ -88,55 +121,37 @@ class GenerateConfig(Config):
         logging.info(self)
 
 
-class TrainConfig(Config):
+class TrainEdgeConfig(Config):
     def __init__(self, config_yaml):
+        self.set_defaults(TRAIN_DEFAULTS)
+        self.required_params = ["graph_paths"]
         super().__init__(config_yaml)
-        # ... Fill
-        self.enforced_params = [
-            # data specifications
-            "graph_paths",
-            "transforms",
-            # training specifications
-            "validation_ratio",
-            "batch_size",
-            "num_epochs",
-            "learning_rate",
-            "device",
-            # misc
-            "graph_visualize_every",  # post transformation visualization frequency
-        ] + MODEL_SPECIFICATIONS + INIT_SPECIFICATIONS
-        self._validate_params()
 
-        if self.device == "cuda":
-            assert torch.cuda.is_available()
+        # -------- setup the output directory structure
+        self.img_dir = os.path.join(self.experiment_dir, "vis")  # plots, graph visualizations
+        self.tensorboard_dir = os.path.join(self.log_dir, "tensorboard", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        self.model_checkpoints_dir = os.path.join(self.experiment_dir, "modes")  # model checkpoints
+        Path(self.img_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.tensorboard_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.model_checkpoints_dir).mkdir(parents=True, exist_ok=True)
+        self.model_path = os.path.join(self.experiment_dir, "final_model.pt")
+        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
 
-        # data directories
-        self.data_dir = os.path.join(
-            self.experiment_dir, "data"
-        )  # misc data, ie labeling statistics
-        self.img_dir = os.path.join(
-            self.experiment_dir, "visuals"
-        )  # plots, graph visualizations
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.log_dir = os.path.join(
-            self.experiment_dir, "runs", timestamp
-        )  # tensorboard logs
-        self.model_save_dir = os.path.join(
-            self.experiment_dir, "model"
-        )  # model checkpoints
-        [
-            os.makedirs(dir_path, exist_ok=True)
-            for dir_path in [
-                self.data_dir,
-                self.img_dir,
-                self.log_dir,
-                self.model_save_dir,
-            ]
-        ]
-        self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
+        # -------- setup compute
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.gpu_ids))
+        if len(self.gpu_ids) > 0 and torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+            limit_cores(self.n_cpus)
 
+        # -------- setup env
+        seed_everything(self.seed)
 
-class TrainGraphConfig(TrainConfig):
+        self.validate_params()
+        logging.info(self)
+
+class TrainGraphConfig(Config):
     def __init__(self, config_yaml: str):
         super().__init__(config_yaml)
         # ... Fill

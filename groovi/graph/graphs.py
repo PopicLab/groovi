@@ -48,27 +48,20 @@ class GrooviGraph:
     """
 
     def __init__(self):
-        self.graph: dgl.DGLGraph = dgl.graph(([], []))
+        self.dgl_graph: dgl.DGLGraph = dgl.graph(([], []))
         self.candidate_src: torch.LongTensor = []
         self.candidate_dst: torch.LongTensor = []
         self.node_to_id = {}
         self.id_to_node = {}
-        # labeling params
-        self.vcf_path: str = None
+        self.vcf_path: str = None  # truthset for labeling
         self.info_path: str = None
 
     def __repr__(self):
-        return f"GrooviGraph(num_nodes={self.graph.num_nodes()}, num_edges={self.graph.num_edges()})"
-
-    def verify(self):
-        required_node_keys = [FEAT, "HT"]
-        required_edge_keys = [FEAT, FEAT_TYPE]
-        assert all(key in self.graph.ndata for key in required_node_keys), f"Graph nodes must contain keys: {required_node_keys}"
-        assert all(key in self.graph.edata for key in required_edge_keys), f"Graph edges must contain keys: {required_edge_keys}"
+        return f"GrooviGraph(num_nodes={self.dgl_graph.num_nodes()}, num_edges={self.dgl_graph.num_edges()})"
 
     def get_stats(self):
-        return {'num_nodes': self.graph.num_nodes(),
-                'num_edges':  self.graph.num_edges(),
+        return {'num_nodes': self.dgl_graph.num_nodes(),
+                'num_edges':  self.dgl_graph.num_edges(),
                 'vcf':  self.vcf_path,
                 'candidate_src':  self.candidate_src,
                 'candidate_dst':  self.candidate_dst}
@@ -78,7 +71,7 @@ class GrooviGraph:
         for segment in ref_segments:
             self._add_node(ref_segment=segment, node_type=NodeType.HEAD, idx=node_idx)
             self._add_node(ref_segment=segment, node_type=NodeType.TAIL, idx=node_idx + 1)
-            self.graph.add_nodes(2, data={"HT": torch.tensor([0, 1], dtype=torch.int64)}) # 0 for HEAD, 1 for TAIL
+            self.dgl_graph.add_nodes(2, data={"HT": torch.tensor([0, 1], dtype=torch.int64)}) # 0 for HEAD, 1 for TAIL
             node_idx += 2
 
     def add_segment_edges(self, ref_segments):
@@ -114,15 +107,15 @@ class GrooviGraph:
                                                   torch.tensor(self.candidate_dst, dtype=torch.int64))
 
     def add_node_features(self):
-        self.graph.ndata[FEAT] = torch.randn((self.graph.num_nodes(), 5))
+        self.dgl_graph.ndata[FEAT] = torch.randn((self.dgl_graph.num_nodes(), 5))
 
     def add_edge_features(self):
         # edge feature: change in depth
-        edge_mask = self.graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
-        u, v = self.graph.edges()
+        edge_mask = self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
+        u, v = self.dgl_graph.edges()
         u, v = u[edge_mask], v[edge_mask]
-        pairwise_depth = (self.graph.ndata[FEAT][v, NODE_FEATURE_TO_ID[NodeFeature.RD]] -
-                          self.graph.ndata[FEAT][u, NODE_FEATURE_TO_ID[NodeFeature.RD]]).unsqueeze(-1)
+        pairwise_depth = (self.dgl_graph.ndata[FEAT][v, NODE_FEATURE_TO_ID[NodeFeature.RD]] -
+                          self.dgl_graph.ndata[FEAT][u, NODE_FEATURE_TO_ID[NodeFeature.RD]]).unsqueeze(-1)
         self._add_edges(u, v, data={FEAT_TYPE: torch.full((len(u),), EDGE_FEATURE_TO_ID[EdgeFeature.PD]),
                                    FEAT: pairwise_depth})
 
@@ -135,25 +128,23 @@ class GrooviGraph:
         groovi_graph.add_nodes(segments)
         groovi_graph.add_segment_edges(segments)
         groovi_graph.add_reference_edges(segments)
-        groovi_graph.add_node_features()
         groovi_graph.add_novel_junction_edges(junctions)
+        groovi_graph.add_node_features()
         groovi_graph.add_edge_features()
         groovi_graph.vcf_path = config.vcf if hasattr(config, "vcf") else None
         groovi_graph.info_path = config.info if hasattr(config, "info") else None
-        groovi_graph.verify()
         return groovi_graph
 
     def _add_edges(self, src, dst, data):
-        self.graph.add_edges(src, dst, data=data)
-        self.graph.add_edges(dst, src, data=data)
+        self.dgl_graph.add_edges(src, dst, data=data)
+        self.dgl_graph.add_edges(dst, src, data=data)
 
     def _add_node(self, ref_segment, node_type, idx):
         self.id_to_node[idx] = GrooviNode.from_segment(ref_segment, node_type)
         self.node_to_id[self.id_to_node[idx]] = idx
 
     def apply_transforms(self, transform: T.BaseTransform) -> "GrooviGraph":
-        """Apply dgl transforms to the GrooviGraph in-place, returns self for chaining."""
-        transformed_graph = transform(self.graph)
-        self.graph = transformed_graph
+        transformed_graph = transform(self.dgl_graph)
+        self.dgl_graph = transformed_graph
         # TODO: src/dst?
         return self
