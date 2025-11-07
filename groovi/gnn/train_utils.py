@@ -13,15 +13,15 @@ class MetricTracker:
 
     def log_train_loss(self, training_loss):
         # self.tensorboard_writer.add_scalar("Train|AvgLoss", training_loss, self.epoch)
-        logging.info(f'======= Train    | Epoch {self.epoch} | {training_loss}')
+        logging.info(f'======= Train    | Epoch {self.epoch} | {training_loss:.4f}')
 
     def log_validation_metrics(self, metrics):
         # for key, value in metrics.items():
         #     self.tensorboard_writer.add_scalar(f"Validation|{key}", value, self.epoch)
         validation_loss = metrics["AvgLoss"]
-        logging.info(f"******* Validate | Epoch {self.epoch} | {validation_loss}")
+        logging.info(f"******* Validate | Epoch {self.epoch} | {validation_loss:.4f}")
         for key, value in metrics.items():
-            if key in ["ConfusionMatrix", "AvgLoss"]: continue
+            if key in ["ConfusionMatrix", "AvgLoss"] or "by-class" in key: continue
             logging.info(f"{key} = {value}")
         # TODO: plot confusion matrix
 

@@ -61,9 +61,9 @@ class GraphClassificationModel(nn.Module):
         )
 
     def forward(self, g):
-        mfeat = g.edata["feat"]
-        etypes = g.edata["rel_type"]
-        nfeat = g.ndata["feat"]
+        mfeat = g.edata[FEAT]
+        etypes = g.edata[FEAT_TYPE]
+        nfeat = g.ndata[FEAT]
         ht_feat = self.ht_embedding(g.ndata['HT'])
         h = torch.cat([nfeat, ht_feat], dim=-1)
         h = self.projection(h)

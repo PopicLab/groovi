@@ -6,6 +6,7 @@ from groovi.graph.visualize import visualize_groovi_graph
 from groovi.seq.labeling import VCF_KDTree
 from groovi.graph.constants import *
 
+from groovi.seq.sv import *
 import pickle
 import dgl.transforms as T
 import torch
@@ -68,22 +69,20 @@ class StaticEdgeDataset(StaticDataset):
         # perform edge labeling
         label_summary = []
         for i, graph in enumerate(self.graphs):
-            tree: VCF_KDTree = VCF_KDTree(graph.vcf_path)
+            tree: SVKDTree = SVKDTree(graph.vcf_path)
             labels = []
             for src, dst in zip(graph.candidate_src, graph.candidate_dst):
                 node_src = graph.id_to_node[src.item()]
                 node_dst = graph.id_to_node[dst.item()]
-                label, distance = tree.query_top_label(query=np.array([node_src.ref_pos, node_dst.ref_pos]),
-                                                       start_chrom=node_src.chr_name,
-                                                       end_chrom=node_dst.chr_name,
-                                                       k=5, return_distance=True,
-                                                       orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
+                label, distance = tree.find_best_label(query=np.array([node_src.ref_pos, node_dst.ref_pos]),
+                                                       chr1=node_src.chr_name, chr2=node_dst.chr_name,
+                                                       k=5, orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
                 labels.append(label)
                 label_summary.append(
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
                     f"Label {label}, Distance {distance}"
                 )
-            labels = [SV_EDGE_CLASS_TO_ID_FN(label) for label in labels]
+            labels = [SVBreakpoint.get_sv_type_labels(self.config.classes)[label] for label in labels]
             labels = torch.tensor(labels, dtype=torch.long)
             self.labels.append(labels)
         with open(config.stats_file_path, "w") as f:

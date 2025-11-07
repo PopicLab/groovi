@@ -25,7 +25,7 @@ class SVSignalProcessor:
         self.config = config
         self.cues_config = CuesConfig()
         self.cues_config.ref = config.fa
-        self.cues_config.max_alns_to_process = 10000
+        self.cues_config.max_alns_to_process = 100000
         self.cues_config.n_threads = 20
         self.cues = Cues(self.cues_config)
         self.stats_to_collect = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
@@ -128,9 +128,9 @@ class SVSignalProcessor:
         tail_segment_rois = []
         for segment in segments: # define head and tail segment regions
             head_segment_rois.append(RefSegment(segment.chr, segment.start,
-                                                min(segment.start + self.config.node_feature_radius, segment.end)))
+                                                min(segment.start + self.config.node_feature_radius, segment.end) + 1))
             tail_segment_rois.append(RefSegment(segment.chr,
                                                 max(segment.end - self.config.node_feature_radius, segment.start),
-                                                segment.end))
+                                                segment.end + 1))
         return (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect),
                 self.cues.collect_stats(self.config.bam, tail_segment_rois, self.stats_to_collect))

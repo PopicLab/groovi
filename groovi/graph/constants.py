@@ -47,10 +47,10 @@ ORIENTATION_TO_EDGE_TYPE =  {JOrientation.kLL: EdgeFeature.LL,
                              JOrientation.kLR: EdgeFeature.LR,
                              JOrientation.kRL: EdgeFeature.RL}
 
-NODE_TYPES_TO_ORIENTATION = {(NodeType.TAIL, NodeType.TAIL): JOrientation.kLL,
-                             (NodeType.HEAD, NodeType.HEAD): JOrientation.kRR,
-                             (NodeType.TAIL, NodeType.HEAD): JOrientation.kLR,
-                             (NodeType.HEAD, NodeType.TAIL): JOrientation.kRL}
+NODE_TYPES_TO_ORIENTATION = {(NodeType.TAIL, NodeType.TAIL): "LL",
+                             (NodeType.HEAD, NodeType.HEAD): "RR",
+                             (NodeType.TAIL, NodeType.HEAD): "LR",
+                             (NodeType.HEAD, NodeType.TAIL): "RL"}
 
 ALNSTAT_TO_NODE_FEAT =  {AlnStatistic.kRD: NodeFeature.RD,
                          AlnStatistic.kRDAll: NodeFeature.RD_LOW,

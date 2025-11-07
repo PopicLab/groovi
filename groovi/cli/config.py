@@ -51,8 +51,8 @@ MODEL_SPECIFICATIONS = [
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
 TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS}
 TRAIN_DEFAULTS.update({
-    "transforms": [],
-    "num_epochs": 10,
+    "transforms": [], #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+    "num_epochs": 100,
     "validation_ratio": 0.5,
     "batch_size": 1,
     'report_interval': 50,
