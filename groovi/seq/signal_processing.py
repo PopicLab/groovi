@@ -1,9 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from groovi.seq.constants import *
-from groovi.seq.io import ChrFAIndex
-
 import numpy as np
 from sklearn.cluster import DBSCAN
 from pycues import *
@@ -28,9 +25,12 @@ class SVSignalProcessor:
         self.config = config
         self.cues_config = CuesConfig()
         self.cues_config.ref = config.fa
-        self.cues_config.max_alns_to_process = 100000
+        self.cues_config.max_alns_to_process = 10000
         self.cues_config.n_threads = 20
         self.cues = Cues(self.cues_config)
+        self.stats_to_collect = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
+                                 AlnStatistic.kClipRight, AlnStatistic.kIns} # TODO: reset for node feature sets
+
 
     def get_aln_stats_for_range(self, segment: RefSegment):
         stats = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
@@ -122,3 +122,15 @@ class SVSignalProcessor:
             segments.extend([RefSegment(chr_name, s, e) for s, e in zip(sorted(list(start_pos)), sorted(list(end_pos)))])
         logging.info("Number of reference segments: %d ", len(segments))
         return segments
+
+    def generate_stats(self, segments):
+        head_segment_rois = []
+        tail_segment_rois = []
+        for segment in segments: # define head and tail segment regions
+            head_segment_rois.append(RefSegment(segment.chr, segment.start,
+                                                min(segment.start + self.config.node_feature_radius, segment.end)))
+            tail_segment_rois.append(RefSegment(segment.chr,
+                                                max(segment.end - self.config.node_feature_radius, segment.start),
+                                                segment.end))
+        return (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect),
+                self.cues.collect_stats(self.config.bam, tail_segment_rois, self.stats_to_collect))

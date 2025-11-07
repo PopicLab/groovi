@@ -49,22 +49,3 @@ class ChrFAIndex:
     
     def get_tid_to_str_conversion(self) -> dict[int, str]:
         return {tid: chr.name for tid, chr in self.tid2chr.items()}
-
-
-class GenomeInfo:
-    def __init__(self, config_yaml: str):
-        required_keys = ['class', 'num_classes']  # add other required keys as needed
-        with open(config_yaml, 'r') as file:
-            self.config_data = yaml.safe_load(file)
-
-            for key, info in self.config_data.items():
-                for req_key in required_keys:
-                    assert req_key in info, f"Key '{req_key}' is missing in the genome info for '{key}'"
-    
-    def get_label(self, key: str) -> str:
-        assert key in self.config_data
-        return self.config_data[key]['class']
-    
-    def get_num_classes(self, key: str) -> int:
-        assert key in self.config_data
-        return self.config_data[key]['num_classes']

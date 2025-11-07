@@ -34,8 +34,7 @@ class NodeFeature(Enum):
     RD = 'RD',
     RD_CLIPPED_L = 'RD_CLIPPED_L',
     RD_CLIPPED_R = 'RD_CLIPPED_R',
-    IN = 'IN'  # fixed target mode
-
+    INS = 'INS'
 
 
 ORIENTATION_TO_NODE_TYPES = {JOrientation.kLL: [NodeType.TAIL, NodeType.TAIL],
@@ -53,6 +52,11 @@ NODE_TYPES_TO_ORIENTATION = {(NodeType.TAIL, NodeType.TAIL): JOrientation.kLL,
                              (NodeType.TAIL, NodeType.HEAD): JOrientation.kLR,
                              (NodeType.HEAD, NodeType.TAIL): JOrientation.kRL}
 
+ALNSTAT_TO_NODE_FEAT =  {AlnStatistic.kRD: NodeFeature.RD,
+                         AlnStatistic.kRDAll: NodeFeature.RD_LOW,
+                         AlnStatistic.kClipLeft: NodeFeature.RD_CLIPPED_L,
+                         AlnStatistic.kClipRight: NodeFeature.RD_CLIPPED_R,
+                         AlnStatistic.kIns: NodeFeature.INS}
 
 EDGE_FEATURE_TO_ID = {e_type: i for i, e_type in enumerate(EdgeFeature)}
 NODE_FEATURE_TO_ID = {feature: i for i, feature in enumerate(NodeFeature)}

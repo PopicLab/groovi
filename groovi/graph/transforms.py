@@ -7,7 +7,7 @@ from dgl import transforms as T
 
 
 '''
-Normalization transforms
+Feature normalization transforms
 '''
 class NormalizeNodes01(T.BaseTransform):
     def __init__(self, n_features_max: float, n_features_min: float = 0):
@@ -102,6 +102,6 @@ TRANSFORMS = {
     'REMOVE_EDGE': RemoveEdge(EdgeFeature.PD),
     'SUPER_NODE': AddSuperNode(),
     'NODE_MASK_CLIPPINGS': NodeFeatureMask([NodeFeature.RD_CLIPPED_L, NodeFeature.RD_CLIPPED_R]),
-    'NODE_MASK_INSERTIONS': NodeFeatureMask([NodeFeature.IN]),
+    'NODE_MASK_INSERTIONS': NodeFeatureMask([NodeFeature.INS]),
     # ... more transformations if needed
 }

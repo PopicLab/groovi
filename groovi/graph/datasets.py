@@ -4,11 +4,9 @@ from groovi.graph.handler import GraphHandler
 from groovi.graph.transforms import TRANSFORMS
 from groovi.graph.visualize import visualize_groovi_graph
 from groovi.seq.labeling import VCF_KDTree
-from groovi.seq.io import GenomeInfo
 from groovi.graph.constants import *
 
 import pickle
-import dgl
 import dgl.transforms as T
 import torch
 from torch.utils.data import IterableDataset, Dataset
@@ -43,9 +41,6 @@ class StaticDataset(Dataset):
         for path in config.graph_paths:
             self.graphs.append(self.load(path))
         self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
-        for graph in self.graphs:
-            print(graph)
-            print(graph.id_to_node)
         self.graphs = [graph.apply_transforms(self.transforms) for graph in self.graphs]
 
         # optionally, post transformation visualization
@@ -62,9 +57,6 @@ class StaticDataset(Dataset):
 
     def load(self, path: str) -> GrooviGraph:
         with open(path, 'rb') as f: return pickle.load(f)
-
-    # def __getitem__(self, index):
-    #     pass
 
     def __len__(self):
         return len(self.graphs)
@@ -91,7 +83,7 @@ class StaticEdgeDataset(StaticDataset):
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
                     f"Label {label}, Distance {distance}"
                 )
-            labels = [SV_CLASS_TO_ID_FN(label) for label in labels]
+            labels = [SV_EDGE_CLASS_TO_ID_FN(label) for label in labels]
             labels = torch.tensor(labels, dtype=torch.long)
             self.labels.append(labels)
         with open(config.stats_file_path, "w") as f:
@@ -104,36 +96,12 @@ class StaticEdgeDataset(StaticDataset):
 class StaticGraphDataset(StaticDataset):
     def __init__(self, config):
         super().__init__(config)
-
-        label_key = config.label_key
-        label_to_int = {}
         labels = []
-        self.num_classes = None
-
         for graph in self.graphs:
-            genome_info = GenomeInfo(graph.get_info_path())
-            label_value = genome_info.get_label(label_key)
-
-            if self.num_classes is None:
-                self.num_classes = genome_info.config_data[label_key]["num_classes"]
-            else:
-                assert (
-                    self.num_classes
-                    == genome_info.config_data[label_key]["num_classes"]
-                ), f"Number of classes for label '{label_key}' inconsistent across graphs."
-
-            if label_value not in label_to_int:
-                label_to_int[label_value] = len(label_to_int)
-            labels.append(label_to_int[label_value])
-
+            with open(graph.info_path, 'r') as file:
+                annotation = yaml.safe_load(file) # graph-level labels
+                assert 'class' in annotation
+                labels.append(SV_GRAPH_CLASS_TO_ID_FN[annotation['class']])
         self.labels = torch.tensor(labels, dtype=torch.long)
-
     def __getitem__(self, index):
-        groovi_graph = self.graphs[index]
-        dgl_graph = groovi_graph.get_dgl_graph()
-        label = self.labels[index]
-        return dgl_graph, label
-
-    def get_num_classes(self):
-        return self.num_classes
-
+        return self.graphs[index].dgl_graph, self.labels[index]

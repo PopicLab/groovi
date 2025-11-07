@@ -24,7 +24,8 @@ GENERATE_DEFAULTS = {
     'save_graphs': True,
     'visualize_graphs': False,
     'cluster_radius': 10,
-    'cluster_support_threshold': 2
+    'cluster_support_threshold': 2,
+    'node_feature_radius': 10
 }
 
 MODEL_DEFAULTS = {
@@ -66,7 +67,7 @@ TRAIN_DEFAULTS.update({
 class Config:
     def __init__(self, config_yaml):
         with open(config_yaml, "r") as file:
-            config_data = yaml.load(file, Loader=yaml.FullLoader)
+            config_data = yaml.safe_load(file)
         self.__dict__.update(config_data)
         self.validate_params()
 

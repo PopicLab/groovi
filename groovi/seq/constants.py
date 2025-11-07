@@ -43,9 +43,11 @@ SV_CLASSES = [
     'rTRA-A', 'rTRA-B',
 ]
 
-SV_CLASS_TO_ID_HELPER = {sv_class: i for i, sv_class in enumerate(SV_CLASSES)}
-SV_CLASS_TO_ID_FN = lambda sv_class: SV_CLASS_TO_ID_HELPER.get(sv_class, 0)  # default to 'NEG' if not found, used for background custom CSVs 
+GRAPH_CLASSES = ["CASE", "CONTROL"]
 
+SV_CLASS_TO_ID_HELPER = {sv_class: i for i, sv_class in enumerate(SV_CLASSES)}
+SV_EDGE_CLASS_TO_ID_FN = lambda sv_class: SV_CLASS_TO_ID_HELPER.get(sv_class, 0)  # default to 'NEG' if not found, used for background custom CSVs
+SV_GRAPH_CLASS_TO_ID_FN =  lambda sv_class: SV_CLASS_TO_ID_HELPER.get(sv_class, 0)
 
 ################################################
 # Global Mapping Exports

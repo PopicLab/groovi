@@ -47,7 +47,8 @@ class GrooviGraph:
         - info_path: str, path to the info file associated with this graph, intended for graph classification tasks, optional
     """
 
-    def __init__(self):
+    def __init__(self, config):
+        self.config = config
         self.dgl_graph: dgl.DGLGraph = dgl.graph(([], []))
         self.candidate_src: torch.LongTensor = []
         self.candidate_dst: torch.LongTensor = []
@@ -66,12 +67,21 @@ class GrooviGraph:
                 'candidate_src':  self.candidate_src,
                 'candidate_dst':  self.candidate_dst}
 
-    def add_nodes(self, ref_segments):
+    def add_nodes(self, ref_segments, node_features):
+        head_segment_stats, tail_segment_stats = node_features
         node_idx = 0
-        for segment in ref_segments:
+        for seq_idx, segment in enumerate(ref_segments):
             self._add_node(ref_segment=segment, node_type=NodeType.HEAD, idx=node_idx)
             self._add_node(ref_segment=segment, node_type=NodeType.TAIL, idx=node_idx + 1)
-            self.dgl_graph.add_nodes(2, data={"HT": torch.tensor([0, 1], dtype=torch.int64)}) # 0 for HEAD, 1 for TAIL
+
+            head_feat = torch.ones(self.config.n_node_features, dtype=torch.float32)
+            tail_feat = torch.ones(self.config.n_node_features, dtype=torch.float32)
+            for aln_stat in head_segment_stats[seq_idx]:
+                feature_idx = NODE_FEATURE_TO_ID[ALNSTAT_TO_NODE_FEAT[aln_stat]]
+                head_feat[feature_idx] = head_segment_stats[seq_idx][aln_stat]
+                tail_feat[feature_idx] = tail_segment_stats[seq_idx][aln_stat]
+            self.dgl_graph.add_nodes(2, data={"HT": torch.tensor([0, 1], dtype=torch.int64), # 0 for HEAD, 1 for TAIL
+                                              FEAT: torch.stack([head_feat, tail_feat], dim=0)})
             node_idx += 2
 
     def add_segment_edges(self, ref_segments):
@@ -106,9 +116,6 @@ class GrooviGraph:
         self.candidate_src, self.candidate_dst = (torch.tensor(self.candidate_src, dtype=torch.int64),
                                                   torch.tensor(self.candidate_dst, dtype=torch.int64))
 
-    def add_node_features(self):
-        self.dgl_graph.ndata[FEAT] = torch.randn((self.dgl_graph.num_nodes(), 5))
-
     def add_edge_features(self):
         # edge feature: change in depth
         edge_mask = self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
@@ -124,12 +131,11 @@ class GrooviGraph:
         signal_processing = SVSignalProcessor(config)
         junctions = signal_processing.extract_junctions(cluster=True)
         segments = signal_processing.extract_segments(junctions)
-        groovi_graph = GrooviGraph()
-        groovi_graph.add_nodes(segments)
+        groovi_graph = GrooviGraph(config)
+        groovi_graph.add_nodes(segments, node_features=signal_processing.generate_stats(segments))
         groovi_graph.add_segment_edges(segments)
         groovi_graph.add_reference_edges(segments)
         groovi_graph.add_novel_junction_edges(junctions)
-        groovi_graph.add_node_features()
         groovi_graph.add_edge_features()
         groovi_graph.vcf_path = config.vcf if hasattr(config, "vcf") else None
         groovi_graph.info_path = config.info if hasattr(config, "info") else None
