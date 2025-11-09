@@ -32,7 +32,7 @@ TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV,
                                        ]}
 
 class SVBreakpoint:
-    def __init__(self, sv_type, chr1, pos1, chr2, pos2, qual, gt):
+    def __init__(self, sv_type, chr1, pos1, chr2, pos2, qual, gt=(None, None), evidence=None):
         self.type = sv_type
         self.chr1 = chr1
         self.pos1 = pos1
@@ -42,8 +42,9 @@ class SVBreakpoint:
         self.gt = gt
         self.len = abs(self.pos1 - self.pos2) if self.chr1 == self.chr2 else None
         self.orientation = None
-        self.evidence = None
+        self.evidence = evidence
         self.evidence_fuzzy = None
+        self.source = None
         self.annotation = None
 
     @classmethod
@@ -62,6 +63,14 @@ class SVBreakpoint:
             sv.evidence = int(rec.info['ReadSupport'])
         if 'ReadSupportFuzzy' in rec.info and rec.info['ReadSupportFuzzy'] is not None:
             sv.evidence_fuzzy = int(rec.info['ReadSupportFuzzy'])
+        return sv
+
+    @classmethod
+    def from_junction(cls, junction):
+        sv = SVBreakpoint("BND", junction.chr1, junction.pos1, junction.chr2, junction.pos2, 0,
+                            (None, None), junction.support)
+        sv.orientation = junction.orientation.name
+        sv.source = junction.source.name
         return sv
 
     def __str__(self):

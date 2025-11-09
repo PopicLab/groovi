@@ -15,8 +15,7 @@ SHARED_DEFAULTS = {
     'logging_level': "INFO",
     'class_set': "CPX12",
     "seed": 12345,
-    "num_dgl_cores": None,
-    "n_cpus": 1,
+    "n_cpus": 8,
     "gpu_ids": [],
 }
 
@@ -24,45 +23,37 @@ GENERATE_DEFAULTS = {
     'save_graphs': True,
     'visualize_graphs': False,
     'cluster_radius': 10,
-    'cluster_support_threshold': 2,
+    'cluster_support_threshold': 10,
     'node_feature_radius': 10
 }
 
 MODEL_DEFAULTS = {
-    "pretrained_model": None,
     "ht_emb_dim": 2,
     "hidden_dim": 10,
     "num_convolutions": 3,
     "num_hidden_layers": 3,
     "update": "WConcat",
-    "normalize": None
+    "normalize": None,
+    "transforms": [], #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
 }
 
-
-MODEL_SPECIFICATIONS = [
-    "ht_emb_dim",
-    "hidden_dim",
-    "num_convolutions",
-    "num_hidden_layers",
-    "update",
-    "normalize",
-]
-
-GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
-TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS}
-TRAIN_DEFAULTS.update({
-    "transforms": [], #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+TRAIN_ENGINE_DEFAULTS = {
+    "pretrained_model": None,
     "num_epochs": 100,
     "validation_ratio": 0.5,
     "batch_size": 1,
-    'report_interval': 50,
+    'metrics_report_interval': 10,
     "graph_visualization_interval": 10, # post transformation visualization frequency
     'model_checkpoint_interval': 10000,
     'learning_rate': 0.0001,
     'learning_rate_decay_interval': 5,
     'learning_rate_decay_factor': 1,
+}
 
-})
+GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
+TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **TRAIN_ENGINE_DEFAULTS}
+DISCOVER_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **GENERATE_DEFAULTS}
+DISCOVER_DEFAULTS.update({'save_graphs': False})
 
 class Config:
     def __init__(self, config_yaml):
@@ -122,6 +113,44 @@ class GenerateConfig(Config):
         logging.info(self)
 
 
+class DiscoverConfig(Config):
+    def __init__(self, config_yaml):
+        self.set_defaults(DISCOVER_DEFAULTS)
+        self.required_params = ["bam", "fa", "model"]
+        super().__init__(config_yaml)
+
+        # -------- setup data inputs
+        self.fai = "%s.fai" % self.fa
+        self.fai_index = ChrFAIndex.load(self.fai)
+
+        # -------- setup the output directory structure
+        self.graph_dir = os.path.join(self.experiment_dir, "graphs")
+        self.img_dir = os.path.join(self.experiment_dir, "vis")
+        self.results_dir = os.path.join(self.experiment_dir, "results")
+        Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.img_dir).mkdir(parents=True, exist_ok=True)
+        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
+        self.bkp_raw_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_raw.vcf")
+        self.bkp_cluster_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_cluster.vcf")
+        self.bkp_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_classified.vcf")
+        self.complex_sv_vcf_file_path = os.path.join(self.log_dir, "groovi.vcf")
+        # TODO: add other outputs
+
+        # -------- setup compute
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.gpu_ids))
+        if len(self.gpu_ids) > 0 and torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+            limit_cores(self.n_cpus)
+
+        # -------- setup env
+        seed_everything(self.seed)
+
+        self.validate_params()
+        logging.info(self)
+
+
 class TrainEdgeConfig(Config):
     def __init__(self, config_yaml):
         self.set_defaults(TRAIN_DEFAULTS)
@@ -163,18 +192,3 @@ class TrainGraphConfig(Config):
         ]
         self._validate_params()
 
-
-class CallConfig(Config):
-    def __init__(self, config_yaml: str):
-        super().__init__(config_yaml)
-        self.enforced_params = [
-            # data specifications
-            "graph_paths",
-            "transforms",
-        ]  + MODEL_SPECIFICATIONS + INIT_SPECIFICATIONS
-        self._validate_params()
-        self.stats_path = os.path.join(self.experiment_dir, "stats.txt")
-        self.img_dir = os.path.join(
-            self.experiment_dir, "visuals"
-        )  # plots, graph visualizations
-        [os.makedirs(dir_path, exist_ok=True) for dir_path in [self.img_dir]]

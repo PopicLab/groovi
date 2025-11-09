@@ -1,9 +1,10 @@
+from groovi.seq.io import *
 from collections import defaultdict
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.cluster import DBSCAN
 from pycues import *
+from sklearn.cluster import DBSCAN
 import logging
 
 class SVSignalProcessor:
@@ -25,24 +26,23 @@ class SVSignalProcessor:
         self.config = config
         self.cues_config = CuesConfig()
         self.cues_config.ref = config.fa
-        self.cues_config.max_alns_to_process = 100000
-        self.cues_config.n_threads = 20
+        self.cues_config.max_alns_to_process = np.iinfo(np.int32).max
+        self.cues_config.n_threads = self.config.n_cpus
         self.cues = Cues(self.cues_config)
         self.stats_to_collect = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
                                  AlnStatistic.kClipRight, AlnStatistic.kIns} # TODO: reset for node feature sets
 
 
-    def get_aln_stats_for_range(self, segment: RefSegment):
-        stats = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
-                 AlnStatistic.kClipRight, AlnStatistic.kIns}
-        aln_stats = self.cues.collect_stats(self.config.bam, [segment], stats)
-
     def extract_junctions(self, cluster=True):
         junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
         logging.info("Total number of junctions: %d ", len(junctions))
+        junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
+        io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
         if cluster:
             junctions = self.cluster_junctions(junctions)
             logging.info("Number of junctions after clustering: %d ", len(junctions))
+            junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
+            io.write_bkp_vcf(self.config.bkp_cluster_vcf_file_path, junction_records, self.config.fai_index)
         return junctions
 
     def cluster_junctions(self, junctions):
@@ -86,7 +86,7 @@ class SVSignalProcessor:
                         centroid = (anchor_centroid +
                                     CENTROID_SHIFT_BY_ORIENTATION[orientation] -
                                     CENTROID_SHIFT_BY_ORIENTATION[orientations_uniq[anchor_idx]])
-                        junctions .append(Junction(chr1=chr1, chr2=chr2,
+                        junctions.append(Junction(chr1=chr1, chr2=chr2,
                                                        pos1=centroid[0], pos2=centroid[1],
                                                        orientation=orientation,
                                                        evidence_type=data.evidence_type[orientation_idx[i]][0],

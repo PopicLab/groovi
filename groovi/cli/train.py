@@ -1,18 +1,15 @@
 from groovi.cli.config import TrainEdgeConfig
 from groovi.graph.datasets import StaticEdgeDataset
 from groovi.gnn.models import EdgeClassificationModel
-from groovi.gnn.train_utils import *
+from groovi.gnn.engine import *
 
 from dgl.dataloading import GraphDataLoader
 import logging
-import os
-
 import torch
 from torch.utils.data import random_split
 
 
 def main(config_yaml):
-    # ------ Initialization ------
     config = TrainEdgeConfig(config_yaml)
 
     # ---------Training dataset setup--------
@@ -28,16 +25,17 @@ def main(config_yaml):
 
     # ---------Model Setup--------
     model = EdgeClassificationModel(config)
-    if config.pretrained_model is not None:
-        model.load_state_dict(torch.load(config.pretrained_model, config.device))
+    if config.pretrained_model: model.load_state_dict(torch.load(config.pretrained_model, config.device))
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.learning_rate_decay_interval,
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                   step_size=config.learning_rate_decay_interval,
                                                    gamma=config.learning_rate_decay_factor)
     model = model.to(device=config.device)
 
     # ------ Training process ------
     for epoch in range(config.num_epochs):
         train(epoch, config, model, train_dataloader, optimizer)
+        # check model checkpoint interval
         torch.save(model.state_dict(), "%s/model.epoch%d.pt" % (config.model_checkpoints_dir, epoch))
         validate(epoch, config, model, val_dataloader)
         lr_scheduler.step()

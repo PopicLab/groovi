@@ -7,6 +7,11 @@ from matplotlib.colors import LinearSegmentedColormap
 from pyvis.network import Network
 import random
 
+################################################
+# Visualization Constants
+################################################
+EDGE_COLOR_MAP = {i: color for i, color in enumerate(['mediumpurple', 'pink', 'darkseagreen', 'lightblue', 'lightgray', 'yellow', 'pink'])}
+
 ARROWSIZE=.10
 HORIZONTAL_SPACING = 100
 EDGE_WIDTH = 3

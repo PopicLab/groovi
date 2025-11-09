@@ -28,6 +28,8 @@ class EdgeFeature(Enum):
     SEG = 'SEG',
     PD = 'PD',
 
+CANDIDATE_EDGE_FEATURE_TYPES = [EdgeFeature.LL, EdgeFeature.RR, EdgeFeature.LR, EdgeFeature.RL]
+
 # Nodes
 class NodeFeature(Enum):
     RD_LOW = 'RD_LOW',
@@ -59,11 +61,15 @@ ALNSTAT_TO_NODE_FEAT =  {AlnStatistic.kRD: NodeFeature.RD,
                          AlnStatistic.kIns: NodeFeature.INS}
 
 EDGE_FEATURE_TO_ID = {e_type: i for i, e_type in enumerate(EdgeFeature)}
+ID_TO_EDGE_FEATURE = {i: e_type for e_type, i in EDGE_FEATURE_TO_ID.items()}
+
 NODE_FEATURE_TO_ID = {feature: i for i, feature in enumerate(NodeFeature)}
 
 NODE_TYPE_TO_ID = {n_type: i for i, n_type in enumerate(NodeType)}
 ID_TO_NODE_TYPE = {i: n_type for n_type, i in NODE_TYPE_TO_ID.items()}
 
+# Graphs
+GRAPH_CLASSES = ["CASE", "CONTROL"]
 
 # -------- Node and edge features --------
 # NodeFeature = groovi.utils.types.make_enum("NodeFeature",
@@ -89,6 +95,3 @@ ID_TO_NODE_TYPE = {i: n_type for n_type, i in NODE_TYPE_TO_ID.items()}
 #     EdgeFeatureSet.LONG:  [EdgeFeature.SRORD12_CDEL, EdgeFeature.SRORD21_SFORD21, EdgeFeature.SRFLIP_SFFLIP],
 # }
 #
-# # -------- Edge annotations --------
-# TargetType = groovi.utils.types.make_enum("TargetType",
-#                                           ["label", "class", "edge_id", "score", "gloc", "dataset_id"], __name__)

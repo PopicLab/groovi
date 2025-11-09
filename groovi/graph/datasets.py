@@ -1,24 +1,21 @@
-from groovi.cli.config import *
+from groovi.graph.constants import *
 from groovi.graph.graphs import GrooviGraph
-from groovi.graph.handler import GraphHandler
+from groovi.seq.sv import *
 from groovi.graph.transforms import TRANSFORMS
 from groovi.graph.visualize import visualize_groovi_graph
-from groovi.seq.labeling import VCF_KDTree
-from groovi.graph.constants import *
 
-from groovi.seq.sv import *
-import pickle
 import dgl.transforms as T
+import numpy as np
+import os
+import pickle
 import torch
 from torch.utils.data import IterableDataset, Dataset
-import numpy as np
-
+import yaml
 
 class StreamingGraphDataset(IterableDataset):
-    def __init__(self, config: Config):
+    def __init__(self, config):
         super().__init__()
         self.config = config
-        self.handler = GraphHandler(self.config)
 
     def save(self, graph) -> None:
         graph_file_path = os.path.join(self.config.graph_dir, f"graph_full.pkl")
@@ -36,7 +33,6 @@ class StaticDataset(Dataset):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.handler = GraphHandler(config)
         self.graphs: list[GrooviGraph] = []
         self.labels = []
         for path in config.graph_paths:
@@ -100,7 +96,7 @@ class StaticGraphDataset(StaticDataset):
             with open(graph.info_path, 'r') as file:
                 annotation = yaml.safe_load(file) # graph-level labels
                 assert 'class' in annotation
-                labels.append(SV_GRAPH_CLASS_TO_ID_FN[annotation['class']])
+                #labels.append(SV_GRAPH_CLASS_TO_ID_FN[annotation['class']]) # todo
         self.labels = torch.tensor(labels, dtype=torch.long)
     def __getitem__(self, index):
         return self.graphs[index].dgl_graph, self.labels[index]

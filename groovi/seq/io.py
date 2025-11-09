@@ -16,41 +16,24 @@ def vcf_iter(vcf_fname, include_types=None):
         yield sv
     vcf_file.close()
 
-def vcf_header(contigs, ctg_no_len=False):
+def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
     header = pysam.VariantHeader()
-    for ctg in contigs:
-        if not ctg_no_len: header.add_line("##contig=<ID=%s,length=%d>\n" % (ctg.name, ctg.len))
-        else: header.add_line("##contig=<ID=%s>\n" % ctg.name)
-    header.add_line('##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the SV">')
-    header.add_line('##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of SV">')
-    header.add_line('##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Length of SV">')
-    header.add_line('##INFO=<ID=ReadSupport,Number=1,Type=Integer,Description="Read support (exact)">')
-    header.add_line('##INFO=<ID=ReadSupportFuzzy,Number=1,Type=Integer,Description="Read support (fuzzy)">')
-    header.formats.add('GT', number=1, type='String', description="Genotype")
-    header.add_sample("SAMPLE")
-    return header
-
-def write_vcf(svs, vcf_fname, fai_fname, sv_types=None, min_score=0, min_len=0):
-    chr_index = ChrFAIndex.load(fai_fname)
-    vcf = pysam.VariantFile(vcf_fname, 'w', header=vcf_header(chr_index.contigs()))
-    svid = 0
-    for sv in svs:
-        if sv_types is not None and sv.type not in sv_types: continue
-        if sv.len < min_len: continue
-        if sv.qual < min_score: continue
-        vcf.write(vcf.new_record(contig=sv.chr_name,
-                                       start=sv.start + 1,
-                                       stop=sv.end + 1,
-                                       alleles=['N', "<%s>" % sv.type],
-                                       id="groovi.%s.%d" % (sv.type, svid),
-                                       info={'SVTYPE': sv.type, 'SVLEN': sv.len,
-                                             'ReadSupport': sv.evidence,
-                                             'ReadSupportFuzzy': sv.evidence_fuzzy},
-                                       qual=sv.qual,
-                                       filter='.',
-                                       samples=[{'GT': sv.gt}]))
-        svid += 1
+    header.add_line('##INFO=<ID=CHR2,Number=1,Type=String,Description=Name of second chromosome">')
+    header.add_line('##INFO=<ID=BKP_TYPE,Number=1,Type=String,Description="Breakpoint type">')
+    header.add_line('##INFO=<ID=SUPPORT,Number=1,Type=Integer,Description="Read support">')
+    header.add_line('##INFO=<ID=ORIENTATION,Number=1,Type=String,Description="Breakpoint orientation">')
+    header.add_line('##INFO=<ID=SOURCE,Number=1,Type=String,Description="Breakpoint evidence source">')
+    for ctg in chr_index.contigs(): header.add_line("##contig=<ID=%s>\n" % ctg.name)
+    vcf = pysam.VariantFile(vcf_fname, 'w', header=header)
+    for sv in sv_bkps:
+        vcf.write(vcf.new_record(contig=sv.chr1, start=sv.pos1, stop=sv.pos2,
+                                 info={"CHR2": sv.chr2, "BKP_TYPE": sv.type, "SUPPORT": sv.evidence,
+                                       "ORIENTATION": sv.orientation, "SOURCE": sv.source},
+                                 alleles=['N', "<%s>" % sv.type],
+                                 id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=None))
     vcf.close()
+    logging.info("Wrote breakpoints to %s" % vcf_fname)
+
 
 Chr = namedtuple('Chr', 'tid name len')
 class ChrFAIndex:

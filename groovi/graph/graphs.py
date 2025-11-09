@@ -30,7 +30,7 @@ class GrooviNode:
 
 class GrooviGraph:
     """
-    A Groovi Graph is a feature-augmented breakpoint graph
+    A Groovi graph is a feature-augmented breakpoint graph
     It is internally represented using a DGL graph with the following properties:
     Node features (graph.ndata):
         - 'HT': Tensor of shape (num_nodes,) indicating if this is a HEAD or TAIL (0/1) node
@@ -40,7 +40,6 @@ class GrooviGraph:
         - FEAT: Tensor of shape (num_edges, num_edge_features) with feature values
 
     Additional attributes:
-        - 'segment': Tensor of shape (num_nodes,) indicating the genomic segment represented by each node
         - candidate_src: Tensor of shape (num_candidate_edges,) indicating source nodes of candidate edges
         - candidate_dst: Tensor of shape (num_candidate_edges,) indicating destination nodes of candidate edges
         - vcf_path: str, path to the VCF file associated with this graph, optional
@@ -54,7 +53,7 @@ class GrooviGraph:
         self.candidate_dst: torch.LongTensor = []
         self.node_to_id = {}
         self.id_to_node = {}
-        self.vcf_path: str = None  # truthset for labeling
+        self.vcf_path: str = None
         self.info_path: str = None
 
     def __repr__(self):
@@ -104,6 +103,7 @@ class GrooviGraph:
 
     def add_novel_junction_edges(self, junctions):
         for j in junctions:
+            if j.support == 0: print(j)
             node_type_src, node_type_dst = ORIENTATION_TO_NODE_TYPES[j.orientation]
             src_node_id = self.node_to_id[GrooviNode(j.chr1, j.pos1, node_type_src)]
             dst_node_id = self.node_to_id[GrooviNode(j.chr2, j.pos2, node_type_dst)]
@@ -125,6 +125,17 @@ class GrooviGraph:
                           self.dgl_graph.ndata[FEAT][u, NODE_FEATURE_TO_ID[NodeFeature.RD]]).unsqueeze(-1)
         self._add_edges(u, v, data={FEAT_TYPE: torch.full((len(u),), EDGE_FEATURE_TO_ID[EdgeFeature.PD]),
                                    FEAT: pairwise_depth})
+
+    def get_edge_support(self, src_node_id, dst_node_id):
+        _, _, edge_ids = self.dgl_graph.edge_ids(src_node_id, dst_node_id, return_uv=True)
+        if len(edge_ids) == 0: return 0
+        edge_type_ids = self.dgl_graph.edata[FEAT_TYPE][edge_ids]
+        total_support = 0
+        for i, e_type_id in enumerate(edge_type_ids) :
+            if ID_TO_EDGE_FEATURE[e_type_id.item()] in CANDIDATE_EDGE_FEATURE_TYPES:
+                total_support += int(self.dgl_graph.edata[FEAT][edge_ids][i].item())
+        return total_support
+
 
     @staticmethod
     def build(config: Config) -> "GrooviGraph":
