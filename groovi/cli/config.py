@@ -13,7 +13,7 @@ from groovi.graph.constants import *
 
 SHARED_DEFAULTS = {
     'logging_level': "INFO",
-    'class_set': "CPX12",
+    'class_set': "CPX10",
     "seed": 12345,
     "n_cpus": 8,
     "gpu_ids": [],
@@ -75,6 +75,7 @@ class Config:
         # -------- setup shared data/model configs
         self.classes = groovi.seq.sv.TYPE_SET_TO_TYPES[groovi.seq.sv.SVTypeSet[self.class_set]]
         self.n_classes = len(self.classes)
+        self.class2label = {sv_class: i for i, sv_class in enumerate(self.classes)}
         self.n_node_features = len(NodeFeature)
         self.n_edge_types = len(EdgeFeature)
 
@@ -108,7 +109,8 @@ class GenerateConfig(Config):
         Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
         Path(self.img_dir).mkdir(parents=True, exist_ok=True)
         self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
-
+        self.bkp_raw_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_raw.vcf")
+        self.bkp_cluster_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_cluster.vcf")
         self.validate_params()
         logging.info(self)
 
@@ -129,11 +131,12 @@ class DiscoverConfig(Config):
         self.results_dir = os.path.join(self.experiment_dir, "results")
         Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
         Path(self.img_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.results_dir).mkdir(parents=True, exist_ok=True)
         self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
-        self.bkp_raw_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_raw.vcf")
-        self.bkp_cluster_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_cluster.vcf")
-        self.bkp_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_classified.vcf")
-        self.complex_sv_vcf_file_path = os.path.join(self.log_dir, "groovi.vcf")
+        self.bkp_raw_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_raw.vcf")
+        self.bkp_cluster_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_cluster.vcf")
+        self.bkp_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_classified.vcf")
+        self.complex_sv_vcf_file_path = os.path.join(self.results_dir, "groovi.vcf")
         # TODO: add other outputs
 
         # -------- setup compute

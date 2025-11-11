@@ -65,20 +65,20 @@ class StaticEdgeDataset(StaticDataset):
         # perform edge labeling
         label_summary = []
         for i, graph in enumerate(self.graphs):
-            tree: SVKDTree = SVKDTree(graph.vcf_path)
-            labels = []
+            tree: SVKDTree = SVKDTree(graph.vcf_path, config.classes)
+            sv_class_matches = []
             for src, dst in zip(graph.candidate_src, graph.candidate_dst):
                 node_src = graph.id_to_node[src.item()]
                 node_dst = graph.id_to_node[dst.item()]
-                label, distance = tree.find_best_label(query=np.array([node_src.ref_pos, node_dst.ref_pos]),
-                                                       chr1=node_src.chr_name, chr2=node_dst.chr_name,
-                                                       k=5, orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
-                labels.append(label)
+                sv_class, distance = tree.find_best_label(query=np.array([node_src.ref_pos, node_dst.ref_pos]),
+                                                         chr1=node_src.chr_name, chr2=node_dst.chr_name, k=5,
+                                                         orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
+                sv_class_matches.append(sv_class)
                 label_summary.append(
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
-                    f"Label {label}, Distance {distance}"
+                    f"Label {sv_class}, Distance {distance}"
                 )
-            labels = [SVBreakpoint.get_sv_type_labels(self.config.classes)[label] for label in labels]
+            labels = [self.config.class2label[c] for c in sv_class_matches]
             labels = torch.tensor(labels, dtype=torch.long)
             self.labels.append(labels)
         with open(config.stats_file_path, "w") as f:

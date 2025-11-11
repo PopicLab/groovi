@@ -18,8 +18,8 @@ BP_TYPES = ["DEL", "INV", "DUP",
             "delINVdel_A",
             "dupINVdup_A"]
 
-SVBpType = groovi.utils.types.make_enum("SVBpType", ["NEG"] + BP_TYPES, __name__)
-SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX12"], __name__)
+SVBpType = groovi.utils.types.make_enum("SVBpType", ["NEG", "BND"] + BP_TYPES, __name__)
+SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX12", "CPX10"], __name__)
 SV_CLASS_SETS_GT = {SVTypeSet.CPX12}
 TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
                                        SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
@@ -29,7 +29,16 @@ TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV,
                                        SVBpType.delINVdup_A, SVBpType.delINVdup_B,
                                        SVBpType.delINVdel_A,
                                        SVBpType.dupINVdup_A,
-                                       ]}
+                                       ],
+                     SVTypeSet.CPX10: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
+                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
+                                       SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
+                                       SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
+                                       SVBpType.delINVdup_A, SVBpType.delINVdup_B,
+                                       SVBpType.delINVdel_A,
+                                       SVBpType.dupINVdup_A,
+                                       ]
+                     }
 
 class SVBreakpoint:
     def __init__(self, sv_type, chr1, pos1, chr2, pos2, qual, gt=(None, None), evidence=None):
@@ -63,6 +72,8 @@ class SVBreakpoint:
             sv.evidence = int(rec.info['ReadSupport'])
         if 'ReadSupportFuzzy' in rec.info and rec.info['ReadSupportFuzzy'] is not None:
             sv.evidence_fuzzy = int(rec.info['ReadSupportFuzzy'])
+        if 'SOURCE' in rec.info and rec.info['SOURCE'] is not None:
+            sv.source = int(rec.info['SOURCE'])
         return sv
 
     @classmethod
@@ -89,10 +100,11 @@ class SVBreakpoint:
         return sv1.evidence - sv2.evidence
 
     def __lt__(self, sv):
-        return self.start < sv.start
+        return self.pos1 < sv.pos1
 
     @staticmethod
     def get_sv_type_labels(sv_classes):
+        print({sv_class: i for i, sv_class in enumerate(sv_classes)})
         return {sv_class: i for i, sv_class in enumerate(sv_classes)}
 
 
@@ -101,8 +113,9 @@ class SVKDTree:
     Efficient querying of SV breakpoint records by L2 distance using KDTrees (stratified by chromosome pair).
     Supports filtering by: distance and breakpoint type/orientation
     """
-    def __init__(self, vcf_path: str):
+    def __init__(self, vcf_path, sv_classes_to_label):
         logging.info('Loading SV breakpoint from {}'.format(vcf_path))
+        self.sv_classes_to_label = sv_classes_to_label
         self.sv_bp_records = [sv for sv in io.vcf_iter(vcf_path)]
         self.chr2kdtrees = {} # maps (chr1, chr2) pairs -> KDTree
         self.chr2idx = {}
@@ -123,6 +136,7 @@ class SVKDTree:
         for sv_idx, distance in zip(sv_bkp_idx, distances):
             if distance > max_distance: continue
             sv_match = self.sv_bp_records[self.chr2idx[(chr1, chr2)][sv_idx]]
+            if sv_match.type not in self.sv_classes_to_label: continue
             if orientation is not None and sv_match.orientation != orientation: continue
             matched_sv_breakpoints.append((sv_match.type, distance))
         return (SVBpType.NEG, None) if not matched_sv_breakpoints else matched_sv_breakpoints[0]

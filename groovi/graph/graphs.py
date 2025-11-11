@@ -124,7 +124,7 @@ class GrooviGraph:
         pairwise_depth = (self.dgl_graph.ndata[FEAT][v, NODE_FEATURE_TO_ID[NodeFeature.RD]] -
                           self.dgl_graph.ndata[FEAT][u, NODE_FEATURE_TO_ID[NodeFeature.RD]]).unsqueeze(-1)
         self._add_edges(u, v, data={FEAT_TYPE: torch.full((len(u),), EDGE_FEATURE_TO_ID[EdgeFeature.PD]),
-                                   FEAT: pairwise_depth})
+                                   FEAT: pairwise_depth}, directed=True)
 
     def get_edge_support(self, src_node_id, dst_node_id):
         _, _, edge_ids = self.dgl_graph.edge_ids(src_node_id, dst_node_id, return_uv=True)
@@ -152,9 +152,10 @@ class GrooviGraph:
         groovi_graph.info_path = config.info if hasattr(config, "info") else None
         return groovi_graph
 
-    def _add_edges(self, src, dst, data):
+    def _add_edges(self, src, dst, data, directed=False):
         self.dgl_graph.add_edges(src, dst, data=data)
-        self.dgl_graph.add_edges(dst, src, data=data)
+        if not directed:
+            self.dgl_graph.add_edges(dst, src, data=data)
 
     def _add_node(self, ref_segment, node_type, idx):
         self.id_to_node[idx] = GrooviNode.from_segment(ref_segment, node_type)
