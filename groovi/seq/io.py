@@ -1,9 +1,39 @@
 from groovi.seq.constants import *
-from groovi.seq.io import *
 
 from collections import namedtuple, OrderedDict
-from pysam import VariantFile
-import yaml
+import pysam
+from groovi.seq.sv import *
+
+###############
+#     VCF     #
+###############
+
+def vcf_iter(vcf_fname, include_types=None):
+    vcf_file = pysam.VariantFile(vcf_fname)
+    for rec in vcf_file.fetch():
+        sv = SVBreakpoint.from_vcf(rec)
+        if include_types and sv.type not in include_types: continue
+        yield sv
+    vcf_file.close()
+
+def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
+    header = pysam.VariantHeader()
+    header.add_line('##INFO=<ID=CHR2,Number=1,Type=String,Description=Name of second chromosome">')
+    header.add_line('##INFO=<ID=BKP_TYPE,Number=1,Type=String,Description="Breakpoint type">')
+    header.add_line('##INFO=<ID=SUPPORT,Number=1,Type=Integer,Description="Read support">')
+    header.add_line('##INFO=<ID=ORIENTATION,Number=1,Type=String,Description="Breakpoint orientation">')
+    header.add_line('##INFO=<ID=SOURCE,Number=1,Type=String,Description="Breakpoint evidence source">')
+    for ctg in chr_index.contigs(): header.add_line("##contig=<ID=%s>\n" % ctg.name)
+    vcf = pysam.VariantFile(vcf_fname, 'w', header=header)
+    for sv in sv_bkps:
+        vcf.write(vcf.new_record(contig=sv.chr1, start=sv.pos1, stop=sv.pos2,
+                                 info={"CHR2": sv.chr2, "BKP_TYPE": sv.type, "SUPPORT": sv.evidence,
+                                       "ORIENTATION": sv.orientation, "SOURCE": sv.source},
+                                 alleles=['N', "<%s>" % sv.type],
+                                 id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=None))
+    vcf.close()
+    logging.info("Wrote breakpoints to %s" % vcf_fname)
+
 
 Chr = namedtuple('Chr', 'tid name len')
 class ChrFAIndex:
@@ -47,35 +77,7 @@ class ChrFAIndex:
     def get_chr_lengths(self) -> dict[int, int]:
         return {tid: self.get_chr_by_tid(tid).len for tid in self.tid2chr}
     
-    def get_chr_prefix_sums(self) -> dict[str, int]:
-        '''
-        Returns a dictionary mapping chromosome names to their starting positions in the genome.
-        '''
-        chr_lengths = self.get_chr_lengths()
-        chr_prefix_sums = OrderedDict({1: 0})  # start with first chromosome at position 0
-        for tid, chr in self.tid2chr.items():
-            if tid == 1: continue
-            chr_prefix_sums[tid] = chr_prefix_sums[tid-1] + chr_lengths[tid-1]
-        return chr_prefix_sums
-    
     def get_tid_to_str_conversion(self) -> dict[int, str]:
         return {tid: chr.name for tid, chr in self.tid2chr.items()}
 
 
-class GenomeInfo:
-    def __init__(self, config_yaml: str):
-        required_keys = ['class', 'num_classes']  # add other required keys as needed
-        with open(config_yaml, 'r') as file:
-            self.config_data = yaml.safe_load(file)
-
-            for key, info in self.config_data.items():
-                for req_key in required_keys:
-                    assert req_key in info, f"Key '{req_key}' is missing in the genome info for '{key}'"
-    
-    def get_label(self, key: str) -> str:
-        assert key in self.config_data
-        return self.config_data[key]['class']
-    
-    def get_num_classes(self, key: str) -> int:
-        assert key in self.config_data
-        return self.config_data[key]['num_classes']

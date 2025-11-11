@@ -3,7 +3,7 @@ from groovi.gnn.modules import (
     MLP,
     GlobalAttentionPooling,
 )
-from groovi.seq.constants import *
+from groovi.graph.constants import *
 
 import dgl
 from dgl.nn import SumPooling, AvgPooling, MaxPooling, GlobalAttentionPooling
@@ -61,9 +61,9 @@ class GraphClassificationModel(nn.Module):
         )
 
     def forward(self, g):
-        mfeat = g.edata["feat"]
-        etypes = g.edata["rel_type"]
-        nfeat = g.ndata["feat"]
+        mfeat = g.edata[FEAT]
+        etypes = g.edata[FEAT_TYPE]
+        nfeat = g.ndata[FEAT]
         ht_feat = self.ht_embedding(g.ndata['HT'])
         h = torch.cat([nfeat, ht_feat], dim=-1)
         h = self.projection(h)
@@ -81,45 +81,47 @@ class GraphClassificationModel(nn.Module):
 
 
 class EdgeClassificationModel(nn.Module):
-    def __init__(
-        self,
-        # GNN Params
-        n_in_dim,
-        ht_emb_dim,
-        hidden_dim,
-        num_rels,
-        num_convolutions,
-        update,
-        normalize,
-        # MLP params
-        num_hidden_layers,
-        num_classes,
-    ):
+    def __init__(self, config):
+    #     self,
+    #     # GNN Params
+    #     n_in_dim,
+    #     ht_emb_dim,
+    #     hidden_dim,
+    #     num_rels,
+    #     num_convolutions,
+    #     update,
+    #     normalize,
+    #     # MLP params
+    #     num_hidden_layers,
+    #     num_classes,
+    # ):
         super().__init__()
         # setup
-        self.ht_embedding = nn.Embedding(len(NodeType), ht_emb_dim)
-        self.projection = nn.Linear(n_in_dim + ht_emb_dim, hidden_dim)
-        self.normalize = normalize
+        self.ht_embedding = nn.Embedding(len(NodeType), config.ht_emb_dim)
+        self.projection = nn.Linear(config.n_node_features + config.ht_emb_dim, config.hidden_dim)
+        self.normalize = config.normalize
 
         # GNN
         self.convolutions = nn.ModuleList([
-            RelGraphConvLayer(hidden_dim, hidden_dim, num_rels, update=update) for _ in range(num_convolutions)
+            RelGraphConvLayer(config.hidden_dim, config.hidden_dim,
+                              config.n_edge_types,
+                              update=config.update) for _ in range(config.num_convolutions)
         ])
 
         # MLP, vectors are twice as long due to concatenation of two nodes
         self.mlp = MLP(
-            input_dim=hidden_dim * 2,
-            hidden_dim=hidden_dim * 2,
-            output_dim=num_classes,
-            num_hidden_layers=num_hidden_layers,
+            input_dim=config.hidden_dim * 2,
+            hidden_dim=config.hidden_dim * 2,
+            output_dim=config.n_classes,
+            num_hidden_layers=config.num_hidden_layers,
             dropout=0.1,
         )
 
     def forward(self, g, src, dst):
         # prepare input to gnn
-        mfeat = g.edata["feat"]
-        etypes = g.edata["rel_type"]
-        nfeat = g.ndata["feat"]
+        mfeat = g.edata[FEAT]
+        etypes = g.edata[FEAT_TYPE]
+        nfeat = g.ndata[FEAT]
         ht_feat = self.ht_embedding(g.ndata['HT'])
         h = torch.cat([nfeat, ht_feat], dim=-1)
         h = self.projection(h)
