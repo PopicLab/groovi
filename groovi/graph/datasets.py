@@ -25,6 +25,8 @@ class StreamingGraphDataset(IterableDataset):
 
     def __iter__(self):
         graph = GrooviGraph.build(self.config)
+        if self.config.visualize_graphs:
+            visualize_groovi_graph(graph, os.path.join(self.config.img_dir, 'graph.html'))
         if self.config.save_graphs: self.save(graph)
         yield graph
 
@@ -41,18 +43,6 @@ class StaticDataset(Dataset):
         for g in self.graphs:
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
-
-        # optionally, post transformation visualization
-        # if config.graph_visualize_every > 0:
-        #     for i, graph in enumerate(self.graphs):
-        #         if i % config.graph_visualize_every == 0:
-        #             save_path = os.path.join(config.img_dir, f"graph_vis_{i}.html")
-        #             visualize_groovi_graph(
-        #                 graph,
-        #                 path=save_path,
-        #                 node_feature_color_code=NodeFeature.RD,
-        #                 stagger_edges=True,
-        #             )
 
     def load(self, path: str) -> GrooviGraph:
         with open(path, 'rb') as f: return pickle.load(f)
@@ -81,6 +71,10 @@ class StaticEdgeDataset(StaticDataset):
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
                     f"Label {sv_class}, Distance {distance}"
                 )
+
+            if i % config.graph_visualization_interval == 0:
+                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'), graph.candidate_src, graph.candidate_dst, sv_class_matches)
+
             labels = [self.config.class2label[c] for c in sv_class_matches]
             self.labels.append(torch.tensor(labels, dtype=torch.int64))
         with open(config.stats_file_path, "w") as f:
