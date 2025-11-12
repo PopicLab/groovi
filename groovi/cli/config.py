@@ -50,9 +50,18 @@ TRAIN_ENGINE_DEFAULTS = {
     'learning_rate_decay_factor': 1,
 }
 
+STITCHING_DEFAULTS = {
+    "breakpoint_threshold": 500,
+    "sep_frag_recs": True,
+    "unmatched_edge_file": None,
+    "filter_overlaps": True,
+    "gap_file": None,
+    "minimum_length": 50,
+}
+
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
 TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **TRAIN_ENGINE_DEFAULTS}
-DISCOVER_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **GENERATE_DEFAULTS}
+DISCOVER_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **GENERATE_DEFAULTS, **STITCHING_DEFAULTS}
 DISCOVER_DEFAULTS.update({'save_graphs': False})
 
 class Config:
@@ -138,6 +147,8 @@ class DiscoverConfig(Config):
         self.bkp_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_classified.vcf")
         self.complex_sv_vcf_file_path = os.path.join(self.results_dir, "groovi.vcf")
         # TODO: add other outputs
+        self.bkp_unmatched_file_path = os.path.join(self.log_dir, "groovi_bkps_unmatched.vcf")
+        self.complex_sv_unfiltered_file_path = os.path.join(self.log_dir, "groovi_unfiltered.vcf")
 
         # -------- setup compute
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.gpu_ids))
