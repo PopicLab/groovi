@@ -41,10 +41,13 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candi
         display_label = []
         ndata = g.dgl_graph.ndata
         n_features = ndata[FEAT][node_id]
+        ht = ndata["HT"][node_id]
 
         for node_feature_name, node_feature_idx in NODE_FEATURE_TO_ID.items():
             feature_value = n_features[node_feature_idx].item()
             display_label.append(f'{node_feature_name.value}: {feature_value:.2f}')
+        
+        display_label.append(f'HT: {ht}')
         
         node: GrooviNode = g.id_to_node[node_id]
         position = node.ref_pos
