@@ -35,10 +35,12 @@ class StaticDataset(Dataset):
         self.config = config
         self.graphs: list[GrooviGraph] = []
         self.labels = []
-        for path in config.graph_paths:
+        for path in config.graphs:
             self.graphs.append(self.load(path))
         self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
-        self.graphs = [graph.apply_transforms(self.transforms) for graph in self.graphs]
+        for g in self.graphs:
+            g.filter_candidate_edges(self.config.candidate_support_threshold)
+            g.apply_transforms(self.transforms)
 
         # optionally, post transformation visualization
         # if config.graph_visualize_every > 0:
@@ -67,6 +69,7 @@ class StaticEdgeDataset(StaticDataset):
         for i, graph in enumerate(self.graphs):
             tree: SVKDTree = SVKDTree(graph.vcf_path, config.classes)
             sv_class_matches = []
+            label_summary.append(f"Graph {i}: {graph.vcf_path}")
             for src, dst in zip(graph.candidate_src, graph.candidate_dst):
                 node_src = graph.id_to_node[src.item()]
                 node_dst = graph.id_to_node[dst.item()]
@@ -79,8 +82,7 @@ class StaticEdgeDataset(StaticDataset):
                     f"Label {sv_class}, Distance {distance}"
                 )
             labels = [self.config.class2label[c] for c in sv_class_matches]
-            labels = torch.tensor(labels, dtype=torch.long)
-            self.labels.append(labels)
+            self.labels.append(torch.tensor(labels, dtype=torch.int64))
         with open(config.stats_file_path, "w") as f:
             f.write("\n".join(label_summary))
     def __getitem__(self, index):

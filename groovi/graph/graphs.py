@@ -131,7 +131,7 @@ class GrooviGraph:
         if len(edge_ids) == 0: return 0
         edge_type_ids = self.dgl_graph.edata[FEAT_TYPE][edge_ids]
         total_support = 0
-        for i, e_type_id in enumerate(edge_type_ids) :
+        for i, e_type_id in enumerate(edge_type_ids):
             if ID_TO_EDGE_FEATURE[e_type_id.item()] in CANDIDATE_EDGE_FEATURE_TYPES:
                 total_support += int(self.dgl_graph.edata[FEAT][edge_ids][i].item())
         return total_support
@@ -161,8 +161,17 @@ class GrooviGraph:
         self.id_to_node[idx] = GrooviNode.from_segment(ref_segment, node_type)
         self.node_to_id[self.id_to_node[idx]] = idx
 
-    def apply_transforms(self, transform: T.BaseTransform) -> "GrooviGraph":
-        transformed_graph = transform(self.dgl_graph)
-        self.dgl_graph = transformed_graph
+    def apply_transforms(self, transform: T.BaseTransform):
+        self.dgl_graph = transform(self.dgl_graph)
         # TODO: src/dst?
-        return self
+
+    def filter_candidate_edges(self, min_candidate_support=1):
+        src_nodes = []
+        dst_nodes = []
+        for src, dst in zip(self.candidate_src, self.candidate_dst):
+            support = self.get_edge_support(src, dst)
+            if support < min_candidate_support: continue
+            src_nodes.append(src.item())
+            dst_nodes.append(dst.item())
+        self.candidate_src = torch.tensor(src_nodes, dtype=torch.int64)
+        self.candidate_dst = torch.tensor(dst_nodes, dtype=torch.int64)

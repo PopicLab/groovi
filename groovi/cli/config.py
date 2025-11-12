@@ -17,13 +17,14 @@ SHARED_DEFAULTS = {
     "seed": 12345,
     "n_cpus": 8,
     "gpu_ids": [],
+    'candidate_support_threshold': 2,
 }
 
 GENERATE_DEFAULTS = {
     'save_graphs': True,
     'visualize_graphs': False,
-    'cluster_radius': 10,
-    'cluster_support_threshold': 10,
+    'cluster_radius': 20,
+    'cluster_support_threshold': 1,
     'node_feature_radius': 10
 }
 
@@ -34,13 +35,13 @@ MODEL_DEFAULTS = {
     "num_hidden_layers": 3,
     "update": "WConcat",
     "normalize": None,
-    "transforms": [], #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+    "transforms": ['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'] #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
 }
 
 TRAIN_ENGINE_DEFAULTS = {
     "pretrained_model": None,
     "num_epochs": 100,
-    "validation_ratio": 0.5,
+    "validation_ratio": 0.1,
     "batch_size": 1,
     'metrics_report_interval': 10,
     "graph_visualization_interval": 10, # post transformation visualization frequency
@@ -157,7 +158,7 @@ class DiscoverConfig(Config):
 class TrainEdgeConfig(Config):
     def __init__(self, config_yaml):
         self.set_defaults(TRAIN_DEFAULTS)
-        self.required_params = ["graph_paths"]
+        self.required_params = ["graphs"]
         super().__init__(config_yaml)
 
         # -------- setup the output directory structure
@@ -180,6 +181,11 @@ class TrainEdgeConfig(Config):
 
         # -------- setup env
         seed_everything(self.seed)
+
+        # -------- training-related setup
+        self.label_weights = torch.ones(self.n_classes)
+        for c in self.classes:
+            self.label_weights[self.class2label[c]] = 1.0 if c == SVBpType.NEG else 10.0
 
         self.validate_params()
         logging.info(self)

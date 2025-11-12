@@ -1,4 +1,4 @@
-from groovi.seq.sv import SVBreakpoint
+from groovi.seq.sv import *
 import logging
 from sklearn.metrics import *
 import torch
@@ -10,6 +10,7 @@ import torch
 class MetricTracker:
     def __init__(self, epoch, config):
         self.epoch = epoch
+        self.config = config
         #self.tensorboard_writer = SummaryWriter(log_dir=config.tensorboard_dir)
 
     def log_train_loss(self, training_loss):
@@ -22,8 +23,12 @@ class MetricTracker:
         validation_loss = metrics["AvgLoss"]
         logging.info(f"******* Validate | Epoch {self.epoch} | {validation_loss:.4f}")
         for key, value in metrics.items():
-            if key in ["ConfusionMatrix", "AvgLoss"] or "by-class" in key: continue
-            logging.info(f"{key} = {value}")
+            if key in ["ConfusionMatrix", "AvgLoss"]: continue
+            if "by-class" in key:
+                for i, class_name in enumerate(self.config.classes):
+                    logging.info(f"{key}-{class_name} = {value[i]}")
+            else:
+                logging.info(f"{key} = {value}")
         # TODO: plot confusion matrix
 
 ######################
@@ -38,7 +43,7 @@ def train(epoch, config, model, dataloader, optimizer):
                                    dst.to(config.device), labels.to(config.device))
         optimizer.zero_grad()
         logits = model(graph, src, dst)
-        loss = torch.nn.CrossEntropyLoss()(logits.permute(0, 2, 1), labels)
+        loss = torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))(logits.permute(0, 2, 1), labels)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -53,9 +58,9 @@ def validate(epoch, config, model, dataloader):
             graph, src, dst, label = (graph.to(config.device), src.to(config.device),
                                       dst.to(config.device), label.to(config.device))
             logits = model(graph, src, dst).permute(0, 2, 1)
-            predicted_classes.append(torch.argmax(logits, dim=1))
-            total_loss += torch.nn.CrossEntropyLoss()(logits, label).item()
-            labels.append(label)
+            predicted_classes.append(torch.argmax(logits, dim=1).flatten())
+            total_loss += torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))(logits, label).item()
+            labels.append(label.flatten())
     labels = torch.cat(labels).cpu()
     predicted_classes = torch.cat(predicted_classes).cpu()
     labels = labels.flatten()
