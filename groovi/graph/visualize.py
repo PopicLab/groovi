@@ -24,13 +24,7 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candi
     Draws a genome graph, made to look linear. Turn stagger_edges on to add randomness for debugging purposes.
     Inputs:
         g: GrooviGraph to visualize
-        path: path to save the html file
-
-    Optional inputs
-        - candidate_src
-        - candidate_dst
-        - algorithm_labels
-        - predicted_labels
+        path: path to save, ensure it ends in html
     '''
     # Randomness option, used for debugging overlapping edges
     def get_stagger():
