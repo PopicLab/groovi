@@ -20,22 +20,22 @@ class NodeType(Enum):
 # Edges
 # TODO: consider feature subsets
 class EdgeFeature(Enum):
-    LR = 'LR',
-    RL = 'RL',
-    LL = 'LL',
-    RR = 'RR',
-    REF = 'REF',
-    SEG = 'SEG',
-    PD = 'PD',
+    LR = 'LR'
+    RL = 'RL'
+    LL = 'LL'
+    RR = 'RR'
+    REF = 'REF'
+    SEG = 'SEG'
+    PD = 'PD'
 
 CANDIDATE_EDGE_FEATURE_TYPES = [EdgeFeature.LL, EdgeFeature.RR, EdgeFeature.LR, EdgeFeature.RL]
 
 # Nodes
 class NodeFeature(Enum):
-    RD_LOW = 'RD_LOW',
-    RD = 'RD',
-    RD_CLIPPED_L = 'RD_CLIPPED_L',
-    RD_CLIPPED_R = 'RD_CLIPPED_R',
+    RD_LOW = 'RD_LOW'
+    RD = 'RD'
+    RD_CLIPPED_L = 'RD_CLIPPED_L'
+    RD_CLIPPED_R = 'RD_CLIPPED_R'
     INS = 'INS'
 
 
