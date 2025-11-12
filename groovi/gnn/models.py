@@ -54,9 +54,9 @@ class GraphClassificationModel(nn.Module):
 
         self.mlp = MLP(
             input_dim=hidden_dim,
-            hidden_dim=hidden_dim,
+            hidden_dim=[hidden_dim],
+            #hidden_dim=config.mlp_hidden_dim,
             output_dim=num_classes,
-            num_hidden_layers=num_hidden_layers,
             dropout=0.1,
         )
 
@@ -82,39 +82,26 @@ class GraphClassificationModel(nn.Module):
 
 class EdgeClassificationModel(nn.Module):
     def __init__(self, config):
-    #     self,
-    #     # GNN Params
-    #     n_in_dim,
-    #     ht_emb_dim,
-    #     hidden_dim,
-    #     num_rels,
-    #     num_convolutions,
-    #     update,
-    #     normalize,
-    #     # MLP params
-    #     num_hidden_layers,
-    #     num_classes,
-    # ):
         super().__init__()
         # setup
         self.ht_embedding = nn.Embedding(len(NodeType), config.ht_emb_dim)
-        self.projection = nn.Linear(config.n_node_features + config.ht_emb_dim, config.hidden_dim)
+        self.projection = nn.Linear(config.n_node_features + config.ht_emb_dim, config.rgcn_input_dim)
         self.normalize = config.normalize
 
         # GNN
         self.convolutions = nn.ModuleList([
-            RelGraphConvLayer(config.hidden_dim, config.hidden_dim,
+            RelGraphConvLayer(config.rgcn_hidden_dim[i-1] if i > 0 else config.rgcn_input_dim,
+                              config.rgcn_hidden_dim[i],
                               config.n_edge_types,
-                              update=config.update) for _ in range(config.num_convolutions)
+                              update=config.update) for i in range(len(config.rgcn_hidden_dim))
         ])
 
         # MLP, vectors are twice as long due to concatenation of two nodes
         self.mlp = MLP(
-            input_dim=config.hidden_dim * 2,
-            hidden_dim=config.hidden_dim * 2,
+            input_dim=config.rgcn_hidden_dim[len(config.rgcn_hidden_dim)-1] * 2,
+            hidden_dim=config.mlp_hidden_dim,
             output_dim=config.n_classes,
-            num_hidden_layers=config.num_hidden_layers,
-            dropout=0.1,
+            dropout=config.mlp_dropout,
         )
 
     def forward(self, g, src, dst):

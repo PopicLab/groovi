@@ -116,15 +116,29 @@ class GrooviGraph:
         self.candidate_src, self.candidate_dst = (torch.tensor(self.candidate_src, dtype=torch.int64),
                                                   torch.tensor(self.candidate_dst, dtype=torch.int64))
 
-    def add_edge_features(self):
+    def add_edge_features(self, split_by_sign=True):
         # edge feature: change in depth
         edge_mask = self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
         u, v = self.dgl_graph.edges()
+        edge_mask = edge_mask & (u < v)
         u, v = u[edge_mask], v[edge_mask]
-        pairwise_depth = (self.dgl_graph.ndata[FEAT][v, NODE_FEATURE_TO_ID[NodeFeature.RD]] -
-                          self.dgl_graph.ndata[FEAT][u, NODE_FEATURE_TO_ID[NodeFeature.RD]]).unsqueeze(-1)
-        self._add_edges(u, v, data={FEAT_TYPE: torch.full((len(u),), EDGE_FEATURE_TO_ID[EdgeFeature.PD]),
-                                   FEAT: pairwise_depth}, directed=True)
+        rd_min = self.dgl_graph.ndata[FEAT][u, NODE_FEATURE_TO_ID[NodeFeature.RD]]
+        rd_max = self.dgl_graph.ndata[FEAT][v, NODE_FEATURE_TO_ID[NodeFeature.RD]]
+        rd_delta = (rd_min - rd_max).unsqueeze(-1)
+
+        if not split_by_sign:
+            self._add_edges(u, v, data={FEAT_TYPE: torch.full((len(u),), EDGE_FEATURE_TO_ID[EdgeFeature.RD]), FEAT: rd_delta})
+        else:
+            pos_mask = (rd_delta >= 0).squeeze()
+            neg_mask = ~pos_mask
+            if pos_mask.any():
+                self._add_edges(u[pos_mask], v[pos_mask],
+                                data={FEAT_TYPE: torch.full((pos_mask.sum(),), EDGE_FEATURE_TO_ID[EdgeFeature.RD_POS]),
+                                      FEAT: rd_delta[pos_mask]})
+            if neg_mask.any():
+                self._add_edges(u[neg_mask], v[neg_mask],
+                                data={FEAT_TYPE: torch.full((neg_mask.sum(),), EDGE_FEATURE_TO_ID[EdgeFeature.RD_NEG]),
+                                      FEAT: rd_delta[neg_mask].abs()})
 
     def get_edge_support(self, src_node_id, dst_node_id):
         _, _, edge_ids = self.dgl_graph.edge_ids(src_node_id, dst_node_id, return_uv=True)
@@ -148,6 +162,7 @@ class GrooviGraph:
         groovi_graph.add_reference_edges(segments)
         groovi_graph.add_novel_junction_edges(junctions)
         groovi_graph.add_edge_features()
+        groovi_graph.filter_candidate_edges(config.candidate_support_threshold)
         groovi_graph.vcf_path = config.vcf if hasattr(config, "vcf") else None
         groovi_graph.info_path = config.info if hasattr(config, "info") else None
         return groovi_graph

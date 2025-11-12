@@ -25,17 +25,18 @@ GENERATE_DEFAULTS = {
     'visualize_graphs': False,
     'cluster_radius': 20,
     'cluster_support_threshold': 1,
-    'node_feature_radius': 10
+    'node_feature_radius': 50
 }
 
 MODEL_DEFAULTS = {
     "ht_emb_dim": 2,
-    "hidden_dim": 10,
-    "num_convolutions": 3,
-    "num_hidden_layers": 3,
+    "rgcn_input_dim": 100,
+    "rgcn_hidden_dim": [100, 200],
+    "mlp_hidden_dim": [200, 50, 50],
+    "mlp_dropout": 0.3,
     "update": "WConcat",
     "normalize": None,
-    "transforms": ['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'] #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+    "transforms": ['NORMALIZE_EDGES_01'] #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
 }
 
 TRAIN_ENGINE_DEFAULTS = {

@@ -26,7 +26,9 @@ class EdgeFeature(Enum):
     RR = 'RR',
     REF = 'REF',
     SEG = 'SEG',
-    PD = 'PD',
+    RD = 'RD',
+    RD_POS = 'RD_POS',
+    RD_NEG = 'RD_NEG',
 
 CANDIDATE_EDGE_FEATURE_TYPES = [EdgeFeature.LL, EdgeFeature.RR, EdgeFeature.LR, EdgeFeature.RL]
 
