@@ -117,8 +117,7 @@ class EdgeClassificationModel(nn.Module):
         for conv in self.convolutions:
             h = conv(g, h, mfeat, etypes)
             h = F.leaky_relu(h)
-            if self.normalize:
-                h = F.normalize(h)
+            if self.normalize: h = F.normalize(h)
         
         # class predictions
         score = self.mlp(torch.cat([h[src], h[dst]], dim=-1))
