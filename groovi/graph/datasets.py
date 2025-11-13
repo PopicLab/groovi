@@ -32,12 +32,12 @@ class StreamingGraphDataset(IterableDataset):
 
 
 class StaticDataset(Dataset):
-    def __init__(self, config):
+    def __init__(self, config, is_validation=False):
         super().__init__()
         self.config = config
         self.graphs: list[GrooviGraph] = []
         self.labels = []
-        for path in config.graphs:
+        for path in config.graphs if not is_validation else config.graphs_validation:
             self.graphs.append(self.load(path))
         self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
         for g in self.graphs:
@@ -52,8 +52,8 @@ class StaticDataset(Dataset):
 
 
 class StaticEdgeDataset(StaticDataset):
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config, is_validation=False):
+        super().__init__(config, is_validation)
         # perform edge labeling
         label_summary = []
         for i, graph in enumerate(self.graphs):

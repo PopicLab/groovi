@@ -13,10 +13,11 @@ def main(config_yaml):
     config = TrainEdgeConfig(config_yaml)
 
     # ---------Training dataset setup--------
-    dataset = StaticEdgeDataset(config)
-    val_size = int(config.validation_ratio * len(dataset))
-    train_size = len(dataset) - val_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    train_dataset = StaticEdgeDataset(config)
+    val_dataset = StaticEdgeDataset(config, is_validation=True)
+    #val_size = int(config.validation_ratio * len(dataset))
+    #train_size = len(dataset) - val_size
+    #train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     # --------- Data loaders -----------------
     train_dataloader = GraphDataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
