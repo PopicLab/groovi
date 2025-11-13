@@ -1,5 +1,7 @@
 from groovi.seq.sv import *
 import logging
+import matplotlib.pyplot as plt
+import os
 from sklearn.metrics import *
 import torch
 # from torch.utils.tensorboard import SummaryWriter
@@ -30,6 +32,13 @@ class MetricTracker:
             else:
                 logging.info(f"{key} = {value}")
         # TODO: plot confusion matrix
+        cm = ConfusionMatrixDisplay(confusion_matrix=metrics["ConfusionMatrix"],
+                                    display_labels=[c.name for c in self.config.classes])
+        cm.plot(cmap='Blues', values_format='d')
+        for text in cm.text_.ravel(): text.set_fontsize(6)
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.config.log_dir, f'confusion_matrix_epoch{self.epoch}.png'))
 
 ######################
 # Edge Classification

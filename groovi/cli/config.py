@@ -15,7 +15,7 @@ SHARED_DEFAULTS = {
     'logging_level': "INFO",
     'class_set': "CPX10",
     "seed": 12345,
-    "n_cpus": 8,
+    "n_cpus": 20,
     "gpu_ids": [],
     'candidate_support_threshold': 2,
 }
@@ -25,7 +25,7 @@ GENERATE_DEFAULTS = {
     'visualize_graphs': False,
     'cluster_radius': 20,
     'cluster_support_threshold': 1,
-    'node_feature_radius': 50
+    'node_feature_radius': 20
 }
 
 MODEL_DEFAULTS = {
@@ -36,7 +36,7 @@ MODEL_DEFAULTS = {
     "mlp_dropout": 0.3,
     "update": "WConcat",
     "normalize": None,
-    "transforms": ['NORMALIZE_EDGES_01'] #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+    "transforms": [] #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
 }
 
 TRAIN_ENGINE_DEFAULTS = {
