@@ -15,9 +15,15 @@ class MetricTracker:
         self.config = config
         #self.tensorboard_writer = SummaryWriter(log_dir=config.tensorboard_dir)
 
-    def log_train_loss(self, training_loss):
+    def log_train_loss(self, training_loss, metrics):
         # self.tensorboard_writer.add_scalar("Train|AvgLoss", training_loss, self.epoch)
         logging.info(f'======= Train    | Epoch {self.epoch} | {training_loss:.4f}')
+        for key, value in metrics.items():
+            if key in ["ConfusionMatrix", "AvgLoss"]: continue
+            if "F1-by-class" in key:
+                for i, class_name in enumerate(self.config.classes):
+                    logging.info(f"======= Train {key}-{class_name} = {value[i]}")
+            else: continue
 
     def log_validation_metrics(self, metrics):
         # for key, value in metrics.items():
@@ -26,11 +32,11 @@ class MetricTracker:
         logging.info(f"******* Validate | Epoch {self.epoch} | {validation_loss:.4f}")
         for key, value in metrics.items():
             if key in ["ConfusionMatrix", "AvgLoss"]: continue
-            if "by-class" in key:
+            if "F1-by-class" in key:
                 for i, class_name in enumerate(self.config.classes):
-                    logging.info(f"{key}-{class_name} = {value[i]}")
-            else:
-                logging.info(f"{key} = {value}")
+                    logging.info(f"******* Validate{key}-{class_name} = {value[i]}")
+            else: continue
+                #logging.info(f"{key} = {value}")
         # TODO: plot confusion matrix
         cm = ConfusionMatrixDisplay(confusion_matrix=metrics["ConfusionMatrix"],
                                     display_labels=[c.name for c in self.config.classes])
@@ -47,16 +53,37 @@ class MetricTracker:
 def train(epoch, config, model, dataloader, optimizer):
     model.train()
     total_loss = 0
-    for graph, src, dst, labels in dataloader:
-        graph, src, dst, labels = (graph.to(config.device), src.to(config.device),
-                                   dst.to(config.device), labels.to(config.device))
+    labels, predicted_classes = [], []
+    for graph, src, dst, label in dataloader:
+        graph, src, dst, label = (graph.to(config.device), src.to(config.device),
+                                   dst.to(config.device), label.to(config.device))
         optimizer.zero_grad()
-        logits = model(graph, src, dst)
-        loss = torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))(logits.permute(0, 2, 1), labels)
+        logits = model(graph, src, dst).permute(0, 2, 1)
+        loss = torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))(logits, label)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    MetricTracker(epoch, config).log_train_loss(total_loss / len(dataloader))
+        predicted_classes.append(torch.argmax(logits, dim=1).flatten())
+        labels.append(label.flatten())
+
+    labels = torch.cat(labels).cpu()
+    predicted_classes = torch.cat(predicted_classes).cpu()
+    labels = labels.flatten()
+    predicted_classes = predicted_classes.flatten()
+    class_labels = list(range(config.n_classes))
+    metrics = {
+        "AvgLoss": total_loss / len(dataloader),
+        "Accuracy": (predicted_classes == labels).float().mean().item(),
+        "Precision": precision_score(labels, predicted_classes, average="micro", zero_division=0),
+        "Recall": recall_score(labels, predicted_classes, average="micro", zero_division=0),
+        "F1": f1_score(labels, predicted_classes, average="micro", zero_division=0),
+        "ConfusionMatrix": confusion_matrix(labels, predicted_classes, labels=class_labels),
+        "Precision-by-class": precision_score(labels, predicted_classes, average=None, zero_division=0,
+                                              labels=class_labels),
+        "Recall-by-class": recall_score(labels, predicted_classes, average=None, zero_division=0, labels=class_labels),
+        "F1-by-class": f1_score(labels, predicted_classes, average=None, zero_division=0, labels=class_labels),
+    }
+    MetricTracker(epoch, config).log_train_loss(total_loss / len(dataloader), metrics)
 
 def validate(epoch, config, model, dataloader):
     model.eval()
@@ -102,7 +129,7 @@ def evaluate(config, model, graph):
             node_src = graph.id_to_node[s.item()]
             node_dst = graph.id_to_node[d.item()]
             sv_type = config.classes[predicted_class.item()]
-            support = graph.get_edge_support(s, d)
+            support, _ = graph.get_edge_support(s, d)
             qual = int(float(prob.item() * 100))
             classified_edges.append(SVBreakpoint(sv_type, node_src.chr_name, node_src.ref_pos,
                                                  node_dst.chr_name, node_dst.ref_pos, qual,(None, None), support))

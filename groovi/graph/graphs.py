@@ -10,6 +10,7 @@ import dgl.transforms as T
 import numpy as np
 import torch
 from typing import Any
+from groovi.seq.sv import *
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ class GrooviGraph:
         self.candidate_src, self.candidate_dst = (torch.tensor(self.candidate_src, dtype=torch.int64),
                                                   torch.tensor(self.candidate_dst, dtype=torch.int64))
 
+
     def add_edge_features(self, split_by_sign=True):
         # edge feature: change in depth
         edge_mask = self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
@@ -145,11 +147,21 @@ class GrooviGraph:
         if len(edge_ids) == 0: return 0
         edge_type_ids = self.dgl_graph.edata[FEAT_TYPE][edge_ids]
         total_support = 0
+        edge_types = set()
         for i, e_type_id in enumerate(edge_type_ids):
             if ID_TO_EDGE_FEATURE[e_type_id.item()] in CANDIDATE_EDGE_FEATURE_TYPES:
                 total_support += int(self.dgl_graph.edata[FEAT][edge_ids][i].item())
-        return total_support
+                edge_types.add(ID_TO_EDGE_FEATURE[e_type_id.item()].name)
+        return total_support, edge_types
 
+    def add_hint(self):
+        for src_node_id, dst_node_id in zip(self.candidate_src, self.candidate_dst):
+            degree = (self.dgl_graph.out_degrees(self.dgl_graph.predecessors(src_node_id.item()) ).max() +
+                      self.dgl_graph.out_degrees( self.dgl_graph.successors(src_node_id.item())).max())
+            edge_type_feat_id = EDGE_FEATURE_TO_ID[EdgeFeature.HINT]
+            self._add_edges(src_node_id, dst_node_id, data={
+                    FEAT_TYPE: torch.tensor([edge_type_feat_id], dtype=torch.int64),
+                    FEAT: torch.tensor([[degree]], dtype=torch.float32)})
 
     @staticmethod
     def build(config: Config) -> "GrooviGraph":
@@ -184,7 +196,7 @@ class GrooviGraph:
         src_nodes = []
         dst_nodes = []
         for src, dst in zip(self.candidate_src, self.candidate_dst):
-            support = self.get_edge_support(src, dst)
+            support, _ = self.get_edge_support(src, dst)
             if support < min_candidate_support: continue
             src_nodes.append(src.item())
             dst_nodes.append(dst.item())

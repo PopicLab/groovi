@@ -43,6 +43,7 @@ class StaticDataset(Dataset):
         for g in self.graphs:
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
+            #g.add_hint()
 
     def load(self, path: str) -> GrooviGraph:
         with open(path, 'rb') as f: return pickle.load(f)
@@ -57,28 +58,30 @@ class StaticEdgeDataset(StaticDataset):
         # perform edge labeling
         label_summary = []
         for i, graph in enumerate(self.graphs):
-            tree: SVKDTree = SVKDTree(graph.vcf_path, config.classes)
+            tree: SVDB = SVDB(graph.vcf_path, config.classes)
             sv_class_matches = []
             label_summary.append(f"Graph {i}: {graph.vcf_path}")
             for src, dst in zip(graph.candidate_src, graph.candidate_dst):
                 node_src = graph.id_to_node[src.item()]
                 node_dst = graph.id_to_node[dst.item()]
                 sv_class, distance = tree.find_best_label(query=np.array([node_src.ref_pos, node_dst.ref_pos]),
-                                                         chr1=node_src.chr_name, chr2=node_dst.chr_name, k=5,
-                                                         orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
+                                                          chr1=node_src.chr_name, chr2=node_dst.chr_name, k=5,
+                                                          orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
                 sv_class_matches.append(sv_class)
+                support, edge_types = graph.get_edge_support(src, dst)
                 label_summary.append(
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
-                    f"Label {sv_class}, Distance {distance}"
+                    f"Label {sv_class}, Distance {distance}, Support {support}, Types {edge_types}"
                 )
-
             if i % config.graph_visualization_interval == 0:
                 visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'), graph.candidate_src, graph.candidate_dst, sv_class_matches)
 
             labels = [self.config.class2label[c] for c in sv_class_matches]
             self.labels.append(torch.tensor(labels, dtype=torch.int64))
+
         with open(config.stats_file_path, "w") as f:
             f.write("\n".join(label_summary))
+
     def __getitem__(self, index):
         graph = self.graphs[index]
         return graph.dgl_graph, graph.candidate_src, graph.candidate_dst, self.labels[index]
