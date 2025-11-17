@@ -15,29 +15,25 @@ class MetricTracker:
         self.config = config
         #self.tensorboard_writer = SummaryWriter(log_dir=config.tensorboard_dir)
 
+    def log_prf1(self, metrics):
+        precision = metrics["Precision-by-class"]
+        recall = metrics["Recall-by-class"]
+        f1 = metrics["F1-by-class"]
+        for i, class_name in enumerate(self.config.classes):
+            logging.info(f"{class_name}: {precision[i]:.4f}, {recall[i]:.4f}, {f1[i]:.4f}")
+
     def log_train_loss(self, training_loss, metrics):
         # self.tensorboard_writer.add_scalar("Train|AvgLoss", training_loss, self.epoch)
         logging.info(f'======= Train    | Epoch {self.epoch} | {training_loss:.4f}')
-        for key, value in metrics.items():
-            if key in ["ConfusionMatrix", "AvgLoss"]: continue
-            if "F1-by-class" in key:
-                for i, class_name in enumerate(self.config.classes):
-                    logging.info(f"======= Train {key}-{class_name} = {value[i]}")
-            else: continue
+        self.log_prf1(metrics)
 
     def log_validation_metrics(self, metrics):
         # for key, value in metrics.items():
         #     self.tensorboard_writer.add_scalar(f"Validation|{key}", value, self.epoch)
         validation_loss = metrics["AvgLoss"]
         logging.info(f"******* Validate | Epoch {self.epoch} | {validation_loss:.4f}")
-        for key, value in metrics.items():
-            if key in ["ConfusionMatrix", "AvgLoss"]: continue
-            if "F1-by-class" in key:
-                for i, class_name in enumerate(self.config.classes):
-                    logging.info(f"******* Validate{key}-{class_name} = {value[i]}")
-            else: continue
-                #logging.info(f"{key} = {value}")
-        # TODO: plot confusion matrix
+        self.log_prf1(metrics)
+
         cm = ConfusionMatrixDisplay(confusion_matrix=metrics["ConfusionMatrix"],
                                     display_labels=[c.name for c in self.config.classes])
         cm.plot(cmap='Blues', values_format='d')

@@ -39,7 +39,7 @@ class StaticDataset(Dataset):
         self.labels = []
         for path in config.graphs if not is_validation else config.graphs_validation:
             self.graphs.append(self.load(path))
-        self.transforms = T.Compose([TRANSFORMS[transform_name] for transform_name in config.transforms])
+        self.transforms = T.Compose(config.transforms)
         for g in self.graphs:
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)

@@ -1,6 +1,6 @@
 from groovi.cli.config import TrainEdgeConfig
 from groovi.graph.datasets import StaticEdgeDataset
-from groovi.gnn.models import EdgeClassificationModel
+from groovi.gnn.models import *
 from groovi.gnn.engine import *
 
 from dgl.dataloading import GraphDataLoader
@@ -26,6 +26,9 @@ def main(config_yaml):
 
     # ---------Model Setup--------
     model = EdgeClassificationModel(config)
+
+    #model = Model([config.n_node_features] + config.rgcn_hidden_dim, config.n_edge_types, config.n_classes)
+
     if config.pretrained_model: model.load_state_dict(torch.load(config.pretrained_model, config.device))
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,

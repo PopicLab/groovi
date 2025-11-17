@@ -11,6 +11,58 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from dgl.nn import RelGraphConv
+
+class MLPPredictor(nn.Module):
+    def __init__(self, in_features, out_classes):
+        super().__init__()
+        self.W = nn.Sequential(
+            nn.Linear(in_features * 2, in_features * 2),
+            nn.LayerNorm(in_features * 2),
+            nn.PReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(in_features * 2, 50),
+            nn.LayerNorm(50),
+            nn.PReLU(),
+            nn.Linear(50, out_classes)
+        )
+    def forward(self, h, src, dst):
+        src = src.flatten()
+        dst = dst.flatten()
+        out = torch.cat((h[src, :], h[dst, :]), dim=1)
+        score = self.W(out)
+        return score.unsqueeze(0)
+
+class RGCN(nn.Module):
+    def __init__(self, features, num_rels):
+        super().__init__()
+        self.conv = []
+        self.act = []
+        for i in range(len(features) - 1):
+            self.conv.append(RelGraphConv(features[i], features[i + 1], num_rels, dropout=0.3, layer_norm=True))
+            self.act.append(nn.PReLU())
+        self.conv = nn.ModuleList(self.conv)
+        self.act = nn.ModuleList(self.act)
+
+    def forward(self, g):
+        x = g.ndata[FEAT]
+        edge_norm = g.edata[FEAT]
+        e_types = g.edata[FEAT_TYPE]
+        for i in range(len(self.conv)):
+            x = self.conv[i](g, x, e_types, edge_norm)
+            x = self.act[i](x)
+        return x
+
+class Model(nn.Module):
+    def __init__(self, features, num_rels, out_classes):
+        super().__init__()
+        self.RCONV = RGCN(features, num_rels)
+        self.pred = MLPPredictor(features[-1], out_classes)
+
+    def forward(self, g, src, dst):
+        h = self.RCONV(g)
+        score = self.pred(h, src, dst)
+        return score
 
 
 class GraphClassificationModel(nn.Module):

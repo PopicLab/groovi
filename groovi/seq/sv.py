@@ -6,6 +6,7 @@ from intervaltree import IntervalTree
 from typing import Union
 from collections import defaultdict
 import logging
+from pycues import *
 
 
 BP_TYPES = ["DEL", "INV", "DUP",
@@ -60,21 +61,21 @@ class SVBreakpoint:
     @classmethod
     def from_vcf(cls, rec):
         gt = (None, None)
-        if 'GT' in rec.samples[rec.samples[0].name]: gt = rec.samples[rec.samples[0].name]['GT']
-        assert 'SVTYPE' in rec.info
+        if len(rec.samples) > 0 and 'GT' in rec.samples[rec.samples[0].name]: gt = rec.samples[rec.samples[0].name]['GT']
         chr1 = rec.contig
         chr2 = chr1
         if 'END_CHROM' in rec.info and rec.info['END_CHROM'] is not None:
             chr2 = rec.info['END_CHROM']
-        sv = SVBreakpoint(rec.info['SVTYPE'], chr1, rec.start - 1, chr2, rec.stop - 1, rec.qual, gt)
+        sv_type = rec.info['SVTYPE'] if 'SVTYPE' in rec.info else SVBpType.BND
+        sv = SVBreakpoint(sv_type, chr1, rec.start - 1, chr2, rec.stop - 1, rec.qual, gt)
         if 'ORIENTATION' in rec.info and rec.info['ORIENTATION'] is not None:
             sv.orientation = rec.info['ORIENTATION']
-        if 'ReadSupport' in rec.info and rec.info['ReadSupport'] is not None:
-            sv.evidence = int(rec.info['ReadSupport'])
+        if 'SUPPORT' in rec.info and rec.info['SUPPORT'] is not None:
+            sv.evidence = int(rec.info['SUPPORT'])
         if 'ReadSupportFuzzy' in rec.info and rec.info['ReadSupportFuzzy'] is not None:
             sv.evidence_fuzzy = int(rec.info['ReadSupportFuzzy'])
         if 'SOURCE' in rec.info and rec.info['SOURCE'] is not None:
-            sv.source = int(rec.info['SOURCE'])
+            sv.source = rec.info['SOURCE']
         return sv
 
     @classmethod
@@ -83,6 +84,12 @@ class SVBreakpoint:
                             (None, None), junction.support)
         sv.orientation = junction.orientation.name
         sv.source = junction.source.name
+        return sv
+
+    def to_junction(self):
+        return Junction(chr1=self.chr1, chr2=self.chr2, pos1=self.pos1, pos2=self.pos2,
+                        orientation=getattr(JOrientation, self.orientation),
+                        evidence_type=getattr(JSource, self.source), support=self.evidence)
         return sv
 
     def __str__(self):

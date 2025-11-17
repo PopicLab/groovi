@@ -10,6 +10,7 @@ import torch
 import yaml
 from groovi.utils.utils import seed_everything, limit_cores
 from groovi.graph.constants import *
+from groovi.graph.transforms import *
 
 SHARED_DEFAULTS = {
     'logging_level': "INFO",
@@ -25,7 +26,9 @@ GENERATE_DEFAULTS = {
     'visualize_graphs': False,
     'cluster_radius': 20,
     'cluster_support_threshold': 1,
-    'node_feature_radius': 20
+    'node_feature_radius': 20,
+    'cluster': True,
+    'use_cached_junctions': False,
 }
 
 MODEL_DEFAULTS = {
@@ -36,7 +39,10 @@ MODEL_DEFAULTS = {
     "mlp_dropout": 0.3,
     "update": "WConcat",
     "normalize": None,
-    "transforms": [] #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+    "feature_norm_vmin": 0,
+    "feature_norm_vmax": 100,
+    "features_to_mask": [],
+    "transforms": [] #"NORMALIZE_NODES_01", "NORMALIZE_EDGES_01"],
 }
 
 TRAIN_ENGINE_DEFAULTS = {
@@ -149,6 +155,10 @@ class DiscoverConfig(Config):
             self.device = torch.device("cpu")
             limit_cores(self.n_cpus)
 
+        # -------- discovery-related setup
+        transform_db = TRANSFORMS(self)
+        self.transforms = [transform_db[t] for t in self.transforms]
+
         # -------- setup env
         seed_everything(self.seed)
 
@@ -184,6 +194,7 @@ class TrainEdgeConfig(Config):
         seed_everything(self.seed)
 
         # -------- training-related setup
+        self.transforms = [TRANSFORMS(self)[t] for t in self.transforms]
         self.label_weights = torch.ones(self.n_classes)
         for c in self.classes:
             self.label_weights[self.class2label[c]] = 1.0 if c == SVBpType.NEG else 10.0

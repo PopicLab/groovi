@@ -32,6 +32,8 @@ class EdgeFeature(Enum):
     HINT = 'HINT'
 
 CANDIDATE_EDGE_FEATURE_TYPES = [EdgeFeature.LL, EdgeFeature.RR, EdgeFeature.LR, EdgeFeature.RL]
+NORM_EDGE_FEATURE_TYPES = [EdgeFeature.LL, EdgeFeature.RR, EdgeFeature.LR, EdgeFeature.RL,
+                           EdgeFeature.RD, EdgeFeature.RD_POS, EdgeFeature.RD_NEG]
 
 # Nodes
 class NodeFeature(Enum):

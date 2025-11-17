@@ -52,6 +52,8 @@ class GrooviGraph:
         self.dgl_graph: dgl.DGLGraph = dgl.graph(([], []))
         self.candidate_src: torch.LongTensor = []
         self.candidate_dst: torch.LongTensor = []
+        self.edges2support = defaultdict(int)
+        self.edges2source = defaultdict(list)
         self.node_to_id = {}
         self.id_to_node = {}
         self.vcf_path: str = None
@@ -104,7 +106,6 @@ class GrooviGraph:
 
     def add_novel_junction_edges(self, junctions):
         for j in junctions:
-            if j.support == 0: print(j)
             node_type_src, node_type_dst = ORIENTATION_TO_NODE_TYPES[j.orientation]
             src_node_id = self.node_to_id[GrooviNode(j.chr1, j.pos1, node_type_src)]
             dst_node_id = self.node_to_id[GrooviNode(j.chr2, j.pos2, node_type_dst)]
@@ -114,6 +115,8 @@ class GrooviGraph:
                 FEAT: torch.tensor([[j.support]], dtype=torch.float32)})
             self.candidate_src.append(src_node_id)
             self.candidate_dst.append(dst_node_id)
+            self.edges2support[(src_node_id, dst_node_id)] = j.support
+            self.edges2source[(src_node_id, dst_node_id)] = [j.source] # TODO: update after clustering change
         self.candidate_src, self.candidate_dst = (torch.tensor(self.candidate_src, dtype=torch.int64),
                                                   torch.tensor(self.candidate_dst, dtype=torch.int64))
 
@@ -166,7 +169,7 @@ class GrooviGraph:
     @staticmethod
     def build(config: Config) -> "GrooviGraph":
         signal_processing = SVSignalProcessor(config)
-        junctions = signal_processing.extract_junctions(cluster=True)
+        junctions = signal_processing.extract_junctions(cluster=config.cluster)
         segments = signal_processing.extract_segments(junctions)
         groovi_graph = GrooviGraph(config)
         groovi_graph.add_nodes(segments, node_features=signal_processing.generate_stats(segments))

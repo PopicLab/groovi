@@ -27,6 +27,7 @@ class SVSignalProcessor:
         self.cues_config = CuesConfig()
         self.cues_config.ref = config.fa
         self.cues_config.max_alns_to_process = np.iinfo(np.int32).max
+        self.max_discord_len = np.iinfo(np.int32).max
         self.cues_config.n_threads = self.config.n_cpus
         self.cues = Cues(self.cues_config)
         self.stats_to_collect = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
@@ -34,10 +35,13 @@ class SVSignalProcessor:
 
 
     def extract_junctions(self, cluster=True):
-        junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
-        logging.info("Total number of junctions: %d ", len(junctions))
-        junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
-        io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
+        if not self.config.use_cached_junctions:
+            junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
+            logging.info("Total number of junctions: %d ", len(junctions))
+            junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
+            io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
+        else:
+            junctions = [sv.to_junction() for sv in io.vcf_iter(self.config.bkp_raw_vcf_file_path)]
         if cluster:
             junctions = self.cluster_junctions(junctions)
             logging.info("Number of junctions after clustering: %d ", len(junctions))
