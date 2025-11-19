@@ -3,6 +3,7 @@ from groovi.graph.datasets import StreamingGraphDataset
 from groovi.gnn.models import EdgeClassificationModel
 from groovi.gnn.engine import *
 import groovi.seq.io as io
+from groovi.seq.stitching import generate_merged_callset
 import logging
 import torch
 
@@ -21,3 +22,4 @@ def main(config_yaml):
     io.write_bkp_vcf(config.bkp_vcf_file_path, classified_sv_bkps, config.fai_index)
 
     # ------ 3. Breakpoint stitching/filtering ------
+    generate_merged_callset(classified_sv_bkps, config)
