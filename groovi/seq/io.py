@@ -18,7 +18,7 @@ def vcf_iter(vcf_fname, include_types=None):
 
 def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
     header = pysam.VariantHeader()
-    header.add_line('##INFO=<ID=CHR2,Number=1,Type=String,Description=Name of second chromosome">')
+    header.add_line('##INFO=<ID=CHR2,Number=1,Type=String,Description="Name of second chromosome">')
     header.add_line('##INFO=<ID=BKP_TYPE,Number=1,Type=String,Description="Breakpoint type">')
     header.add_line('##INFO=<ID=SUPPORT,Number=1,Type=Integer,Description="Read support">')
     header.add_line('##INFO=<ID=ORIENTATION,Number=1,Type=String,Description="Breakpoint orientation">')

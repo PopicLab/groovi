@@ -127,18 +127,20 @@ class GlobalAttentionPooling(nn.Module):
 ##############################################
 
 class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_hidden_layers=3, dropout=0.1):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.1):
         super().__init__()
         layers = []
-        for i in range(num_hidden_layers):
-            in_dim = input_dim if i == 0 else hidden_dim
-            out_dim = output_dim if i == num_hidden_layers - 1 else hidden_dim
+        num_hidden_layers = len(hidden_dim)
+        for i in range(num_hidden_layers +  1):
+            in_dim = input_dim if i == 0 else hidden_dim[i-1]
+            out_dim = output_dim if i == num_hidden_layers else hidden_dim[i]
             layers.append(nn.Linear(in_dim, out_dim))
-            if i != num_hidden_layers - 1:
-                layers.append(nn.ReLU())
-                if dropout > 0:
-                    layers.append(nn.Dropout(dropout))
+            layers.append(nn.LayerNorm(out_dim))
+            if i != num_hidden_layers:
+                layers.append(nn.PReLU())
+                if dropout > 0: layers.append(nn.Dropout(dropout))
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.mlp(x)
+

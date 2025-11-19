@@ -17,7 +17,8 @@ class EDGE_LENGTHS(Enum):
     MEDIUM = NODE_SIZE*6
     LONG = NODE_SIZE*8
 
-EDGE_COLOR_MAPCOLORS = {i: color for i, color in enumerate(['mediumpurple', 'pink', 'lightgreen', 'darkseagreen', 'lightblue', 'lightgray', 'yellow', 'pink'])}
+EDGE_COLOR_MAPCOLORS = {i: color for i, color in enumerate(['mediumpurple', 'pink', 'lightgreen', 'darkseagreen', 'lightblue', 'lightgray', 'yellow', 'pink',
+                                                            "blue", "red"])}
 
 def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candidate_dst = None, algorithm_labels = None, predicted_labels = None, stagger_edges = False) -> None:
     '''

@@ -10,37 +10,54 @@ import torch
 import yaml
 from groovi.utils.utils import seed_everything, limit_cores
 from groovi.graph.constants import *
+from groovi.graph.transforms import *
 
 SHARED_DEFAULTS = {
     'logging_level': "INFO",
     'class_set': "CPX10",
     "seed": 12345,
-    "n_cpus": 8,
+    "n_cpus": 20,
     "gpu_ids": [],
+    'candidate_support_threshold': 2,
 }
 
 GENERATE_DEFAULTS = {
     'save_graphs': True,
     'visualize_graphs': False,
-    'cluster_radius': 10,
-    'cluster_support_threshold': 10,
-    'node_feature_radius': 10
+    'cluster_radius': 20,
+    'cluster_support_threshold': 1,
+    'node_stats_buffer': 20,
+    'node_stats_buffer_overlap': 0,
+    'min_clipped_len': 10,
+    'min_discord_len': 40,
+    'min_mapq': 10,
+    'recover_ins': True,
+    'recover_clipping': True,
+    'recover_subfrag': True,
+    'interchrom': False,
+    'cluster': True,
+    'use_cached_junctions': False,
+    'aln_batch_size': 500000,
 }
 
 MODEL_DEFAULTS = {
     "ht_emb_dim": 2,
-    "hidden_dim": 10,
-    "num_convolutions": 3,
-    "num_hidden_layers": 3,
+    "rgcn_input_dim": 100,
+    "rgcn_hidden_dim": [100, 200],
+    "mlp_hidden_dim": [200, 50, 50],
+    "mlp_dropout": 0.3,
     "update": "WConcat",
     "normalize": None,
-    "transforms": [], #['NORMALIZE_NODES_01', 'NORMALIZE_EDGES_01'],
+    "feature_norm_vmin": 0,
+    "feature_norm_vmax": 100,
+    "features_to_mask": [],
+    "transforms": [] #["NORMALIZE_NODES_01"] # "NORMALIZE_EDGES_01"],
 }
 
 TRAIN_ENGINE_DEFAULTS = {
     "pretrained_model": None,
     "num_epochs": 100,
-    "validation_ratio": 0.5,
+    "validation_ratio": 0.1,
     "batch_size": 1,
     'metrics_report_interval': 10,
     "graph_visualization_interval": 10, # post transformation visualization frequency
@@ -110,7 +127,7 @@ class GenerateConfig(Config):
 
         # -------- setup data inputs
         self.fai = "%s.fai" % self.fa
-        self.fai_index = ChrFAIndex.load(self.fai)
+        self.fai_index = ChrFAIndex.load(self.fai, all=True)
 
         # -------- setup the output directory structure
         self.graph_dir = os.path.join(self.experiment_dir, "graphs")
@@ -132,7 +149,7 @@ class DiscoverConfig(Config):
 
         # -------- setup data inputs
         self.fai = "%s.fai" % self.fa
-        self.fai_index = ChrFAIndex.load(self.fai)
+        self.fai_index = ChrFAIndex.load(self.fai, all=True)
 
         # -------- setup the output directory structure
         self.graph_dir = os.path.join(self.experiment_dir, "graphs")
@@ -158,6 +175,10 @@ class DiscoverConfig(Config):
             self.device = torch.device("cpu")
             limit_cores(self.n_cpus)
 
+        # -------- discovery-related setup
+        transform_db = TRANSFORMS(self)
+        self.transforms = [transform_db[t] for t in self.transforms]
+
         # -------- setup env
         seed_everything(self.seed)
 
@@ -168,7 +189,7 @@ class DiscoverConfig(Config):
 class TrainEdgeConfig(Config):
     def __init__(self, config_yaml):
         self.set_defaults(TRAIN_DEFAULTS)
-        self.required_params = ["graph_paths"]
+        self.required_params = ["graphs"]
         super().__init__(config_yaml)
 
         # -------- setup the output directory structure
@@ -191,6 +212,12 @@ class TrainEdgeConfig(Config):
 
         # -------- setup env
         seed_everything(self.seed)
+
+        # -------- training-related setup
+        self.transforms = [TRANSFORMS(self)[t] for t in self.transforms]
+        self.label_weights = torch.ones(self.n_classes)
+        for c in self.classes:
+            self.label_weights[self.class2label[c]] = 1.0 if c == SVBpType.NEG else 10.0
 
         self.validate_params()
         logging.info(self)

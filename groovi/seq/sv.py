@@ -2,9 +2,11 @@ import groovi.utils.types
 import groovi.seq.io as io
 import numpy as np
 from scipy.spatial import KDTree
+from intervaltree import IntervalTree
 from typing import Union
 from collections import defaultdict
 import logging
+from pycues import *
 
 
 BP_TYPES = ["DEL", "INV", "DUP",
@@ -59,21 +61,21 @@ class SVBreakpoint:
     @classmethod
     def from_vcf(cls, rec):
         gt = (None, None)
-        if 'GT' in rec.samples[rec.samples[0].name]: gt = rec.samples[rec.samples[0].name]['GT']
-        assert 'SVTYPE' in rec.info
+        if len(rec.samples) > 0 and 'GT' in rec.samples[rec.samples[0].name]: gt = rec.samples[rec.samples[0].name]['GT']
         chr1 = rec.contig
         chr2 = chr1
         if 'END_CHROM' in rec.info and rec.info['END_CHROM'] is not None:
             chr2 = rec.info['END_CHROM']
-        sv = SVBreakpoint(rec.info['SVTYPE'], chr1, rec.start - 1, chr2, rec.stop - 1, rec.qual, gt)
+        sv_type = rec.info['SVTYPE'] if 'SVTYPE' in rec.info else SVBpType.BND
+        sv = SVBreakpoint(sv_type, chr1, rec.start - 1, chr2, rec.stop - 1, rec.qual, gt)
         if 'ORIENTATION' in rec.info and rec.info['ORIENTATION'] is not None:
             sv.orientation = rec.info['ORIENTATION']
-        if 'ReadSupport' in rec.info and rec.info['ReadSupport'] is not None:
-            sv.evidence = int(rec.info['ReadSupport'])
+        if 'SUPPORT' in rec.info and rec.info['SUPPORT'] is not None:
+            sv.evidence = int(rec.info['SUPPORT'])
         if 'ReadSupportFuzzy' in rec.info and rec.info['ReadSupportFuzzy'] is not None:
             sv.evidence_fuzzy = int(rec.info['ReadSupportFuzzy'])
         if 'SOURCE' in rec.info and rec.info['SOURCE'] is not None:
-            sv.source = int(rec.info['SOURCE'])
+            sv.source = rec.info['SOURCE']
         return sv
 
     @classmethod
@@ -82,6 +84,12 @@ class SVBreakpoint:
                             (None, None), junction.support)
         sv.orientation = junction.orientation.name
         sv.source = junction.source.name
+        return sv
+
+    def to_junction(self):
+        return Junction(chr1=self.chr1, chr2=self.chr2, pos1=self.pos1, pos2=self.pos2,
+                        orientation=getattr(JOrientation, self.orientation),
+                        evidence_type=getattr(JSource, self.source), support=self.evidence)
         return sv
 
     def __str__(self):
@@ -108,35 +116,59 @@ class SVBreakpoint:
         return {sv_class: i for i, sv_class in enumerate(sv_classes)}
 
 
-class SVKDTree:
+class SVDB:
     """
-    Efficient querying of SV breakpoint records by L2 distance using KDTrees (stratified by chromosome pair).
+    Efficient querying of SV breakpoint records:
+     * using KDTrees (stratified by chromosome pair) with L2 distance
+     * using Interval trees with overlap and size constraints
     Supports filtering by: distance and breakpoint type/orientation
     """
-    def __init__(self, vcf_path, sv_classes_to_label):
+    def __init__(self, vcf_path, sv_classes_to_label, store_type="KDTree"):
         logging.info('Loading SV breakpoint from {}'.format(vcf_path))
         self.sv_classes_to_label = sv_classes_to_label
         self.sv_bp_records = [sv for sv in io.vcf_iter(vcf_path)]
-        self.chr2kdtrees = {} # maps (chr1, chr2) pairs -> KDTree
-        self.chr2idx = {}
-        ref_pos_by_chr = defaultdict(list)
+        self.chr2idx = defaultdict(list)
         for idx, sv in enumerate(self.sv_bp_records):
-            ref_pos_by_chr[tuple(sorted([sv.chr1, sv.chr2]))].append(idx)
-        for chr_key, sv_bkp_idx in ref_pos_by_chr.items():
-            self.chr2idx[chr_key] = sv_bkp_idx
-            self.chr2kdtrees[chr_key] = KDTree( np.array([[self.sv_bp_records[idx].pos1, self.sv_bp_records[idx].pos2]
-                                                          for idx in ref_pos_by_chr[chr_key]]))
+            self.chr2idx[self._get_key(sv.chr1, sv.chr2)].append(idx)
+
+        if store_type == "KDTree":
+            self.chr2kdtrees = {}  # maps (chr1, chr2) pairs -> KDTree
+            for chr_key, sv_bkp_idx in self.chr2idx.items():
+                self.chr2kdtrees[chr_key] = KDTree(np.array([[self.sv_bp_records[idx].pos1,
+                                                              self.sv_bp_records[idx].pos2] for idx in sv_bkp_idx]))
+        else:
+            self.chr2intvtrees = {}
+            for chr_key, sv_bkp_idx in self.chr2idx.items():
+                self.chr2intvtrees[chr_key] = IntervalTree()
+                for idx in sv_bkp_idx:
+                    self.chr2intvtrees[chr_key].addi(self.sv_bp_records[idx].pos1, self.sv_bp_records[idx].pos2, idx)
+
+    def _get_key(self, chr1, chr2):
+        return tuple(sorted([chr1, chr2]))
+
 
     def find_best_label(self, query: np.ndarray, chr1: str, chr2: str, k: int = 5,
                         orientation = None, max_distance = 100):
-        if (chr1, chr2) not in self.chr2kdtrees: return SVBpType.NEG, None
-        distances, sv_bkp_idx = self.chr2kdtrees[(chr1, chr2)].query(query, k=k)
+        chr_key = self._get_key(chr1, chr2)
+        candidates = []
+        if hasattr(self, 'chr2kdtrees'):
+            if chr_key not in self.chr2kdtrees: return SVBpType.NEG, None
+            distances, sv_bkp_idx = self.chr2kdtrees[chr_key].query(query, k=k)
+            for sv_idx, distance in zip(sv_bkp_idx, distances):
+                if distance < max_distance: candidates.append((distance, sv_idx))
+        else:
+            if chr_key not in self.chr2intvtrees: return SVBpType.NEG, None
+            size_sim = 0.5
+            for c in self.chr2intvtrees[(chr1, chr2)].overlap(query[0], query[1]):
+                if abs(c.begin - query[0]) > max_distance or abs(c.end - query[1]) > max_distance: continue
+                size_frac = (min(abs(c.end - c.begin), abs(query[0] - query[1])) /
+                             max(abs(c.end - c.begin), abs(query[0] - query[1])))
+                if size_frac < size_sim: continue
+                candidates.append((1-size_frac, c.data))
 
-        matched_sv_breakpoints = []
-        for sv_idx, distance in zip(sv_bkp_idx, distances):
-            if distance > max_distance: continue
-            sv_match = self.sv_bp_records[self.chr2idx[(chr1, chr2)][sv_idx]]
+        for dist, sv_idx in sorted(candidates, key=lambda item: item[0]):
+            sv_match = self.sv_bp_records[self.chr2idx[chr_key][sv_idx]]
             if sv_match.type not in self.sv_classes_to_label: continue
             if orientation is not None and sv_match.orientation != orientation: continue
-            matched_sv_breakpoints.append((sv_match.type, distance))
-        return (SVBpType.NEG, None) if not matched_sv_breakpoints else matched_sv_breakpoints[0]
+            return sv_match.type, dist
+        return SVBpType.NEG, None

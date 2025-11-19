@@ -26,18 +26,30 @@ class SVSignalProcessor:
         self.config = config
         self.cues_config = CuesConfig()
         self.cues_config.ref = config.fa
+        self.cues_config.min_discord_len = config.min_discord_len
+        self.cues_config.max_discord_len = np.iinfo(np.int32).max
+        self.cues_config.min_clipped_len = config.min_clipped_len
+        self.cues_config.min_mapq = config.min_mapq
+        self.cues_config.run_recovery_ins = config.recover_ins
+        self.cues_config.run_recovery_clipping = config.recover_clipping
+        self.cues_config.run_recovery_subfrags = config.recover_subfrag
         self.cues_config.max_alns_to_process = np.iinfo(np.int32).max
+        self.cues_config.record_inter_chromosomal_junctions = config.interchrom
         self.cues_config.n_threads = self.config.n_cpus
+        self.cues_config.aln_batch_size = self.config.aln_batch_size
         self.cues = Cues(self.cues_config)
         self.stats_to_collect = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
                                  AlnStatistic.kClipRight, AlnStatistic.kIns} # TODO: reset for node feature sets
 
 
     def extract_junctions(self, cluster=True):
-        junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
-        logging.info("Total number of junctions: %d ", len(junctions))
-        junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
-        io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
+        if not self.config.use_cached_junctions:
+            junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
+            logging.info("Total number of junctions: %d ", len(junctions))
+            junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
+            io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
+        else:
+            junctions = [sv.to_junction() for sv in io.vcf_iter(self.config.bkp_raw_vcf_file_path)]
         if cluster:
             junctions = self.cluster_junctions(junctions)
             logging.info("Number of junctions after clustering: %d ", len(junctions))
@@ -127,10 +139,11 @@ class SVSignalProcessor:
         head_segment_rois = []
         tail_segment_rois = []
         for segment in segments: # define head and tail segment regions
-            head_segment_rois.append(RefSegment(segment.chr, segment.start,
-                                                min(segment.start + self.config.node_feature_radius, segment.end) + 1))
+            head_segment_rois.append(RefSegment(segment.chr, max(segment.start - self.config.node_stats_buffer_overlap, 0),
+                                                min(segment.start + self.config.node_stats_buffer, segment.end) + 1))
             tail_segment_rois.append(RefSegment(segment.chr,
-                                                max(segment.end - self.config.node_feature_radius, segment.start),
-                                                segment.end + 1))
+                                                max(segment.end - self.config.node_stats_buffer, segment.start),
+                                                min(segment.end + 1 + self.config.node_stats_buffer_overlap,
+                                                    self.config.fai_index.get_chr_by_name(segment.chr).len)))
         return (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect),
                 self.cues.collect_stats(self.config.bam, tail_segment_rois, self.stats_to_collect))
