@@ -168,6 +168,7 @@ class GrooviGraph:
 
     @staticmethod
     def build(config: Config) -> "GrooviGraph":
+        logging.info("Building Groovi graph...")
         signal_processing = SVSignalProcessor(config)
         junctions = signal_processing.extract_junctions(cluster=config.cluster)
         segments = signal_processing.extract_segments(junctions)
@@ -180,6 +181,7 @@ class GrooviGraph:
         groovi_graph.filter_candidate_edges(config.candidate_support_threshold)
         groovi_graph.vcf_path = config.vcf if hasattr(config, "vcf") else None
         groovi_graph.info_path = config.info if hasattr(config, "info") else None
+        logging.info("Finished graph construction")
         return groovi_graph
 
     def _add_edges(self, src, dst, data, directed=False):

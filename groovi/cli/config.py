@@ -26,9 +26,18 @@ GENERATE_DEFAULTS = {
     'visualize_graphs': False,
     'cluster_radius': 20,
     'cluster_support_threshold': 1,
-    'node_feature_radius': 20,
+    'node_stats_buffer': 20,
+    'node_stats_buffer_overlap': 0,
+    'min_clipped_len': 10,
+    'min_discord_len': 40,
+    'min_mapq': 10,
+    'recover_ins': True,
+    'recover_clipping': True,
+    'recover_subfrag': True,
+    'interchrom': False,
     'cluster': True,
     'use_cached_junctions': False,
+    'aln_batch_size': 500000,
 }
 
 MODEL_DEFAULTS = {
@@ -42,7 +51,7 @@ MODEL_DEFAULTS = {
     "feature_norm_vmin": 0,
     "feature_norm_vmax": 100,
     "features_to_mask": [],
-    "transforms": [] #"NORMALIZE_NODES_01", "NORMALIZE_EDGES_01"],
+    "transforms": [] #["NORMALIZE_NODES_01"] # "NORMALIZE_EDGES_01"],
 }
 
 TRAIN_ENGINE_DEFAULTS = {
@@ -109,7 +118,7 @@ class GenerateConfig(Config):
 
         # -------- setup data inputs
         self.fai = "%s.fai" % self.fa
-        self.fai_index = ChrFAIndex.load(self.fai)
+        self.fai_index = ChrFAIndex.load(self.fai, all=True)
 
         # -------- setup the output directory structure
         self.graph_dir = os.path.join(self.experiment_dir, "graphs")
@@ -131,7 +140,7 @@ class DiscoverConfig(Config):
 
         # -------- setup data inputs
         self.fai = "%s.fai" % self.fa
-        self.fai_index = ChrFAIndex.load(self.fai)
+        self.fai_index = ChrFAIndex.load(self.fai, all=True)
 
         # -------- setup the output directory structure
         self.graph_dir = os.path.join(self.experiment_dir, "graphs")
