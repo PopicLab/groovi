@@ -71,39 +71,44 @@ class SVSignalProcessor:
         dbscan = DBSCAN(eps=self.config.cluster_radius, min_samples=1, metric='manhattan')
 
         # cluster junctions connecting the same pair of chromosomes
-        junctions = [] # will be re-populated with clusterd junctions
+        junctions = [] # will be re-populated with clustered junctions
         for chr1, chr2 in junction_index:
             data = self.JunctionSoA.from_aos(junction_index[(chr1, chr2)])
             labels = dbscan.fit_predict(data.pos)
             for label in np.unique(labels):
                 cluster_mask = labels == label
                 cluster_size = np.sum(data.support[cluster_mask])
-                if cluster_size <= self.config.cluster_support_threshold: continue
+                if cluster_size < self.config.cluster_support_threshold: continue
                 orientations_uniq = np.unique(data.orientation[cluster_mask])
+
                 if len(orientations_uniq) == 1:
-                    centroid = np.round(np.sum(data.pos[cluster_mask] *
-                                               data.support[cluster_mask].reshape(-1, 1), axis=0) / cluster_size).astype(int)
+                    # centroid = np.round(np.sum(data.pos[cluster_mask] *
+                    #                            data.support[cluster_mask].reshape(-1, 1), axis=0) / cluster_size).astype(int)
+                    weighted_positions = np.repeat(data.pos[cluster_mask], data.support[cluster_mask], axis=0)
+                    centroid = np.median(weighted_positions, axis=0).astype(int)
+
                     junctions.append(Junction(chr1=chr1, chr2=chr2, pos1=centroid[0], pos2=centroid[1],
-                                                   orientation=data.orientation[cluster_mask][0],
-                                                   evidence_type=data.evidence_type[cluster_mask][0], # TODO keep all
-                                                   support=cluster_size))
+                                              orientation=data.orientation[cluster_mask][0],
+                                              evidence_type=data.evidence_type[cluster_mask][0], # TODO keep all
+                                              support=cluster_size))
                 else:
                     orientation_idx = [np.flatnonzero((data.orientation == o) & cluster_mask) for o in orientations_uniq]
                     orientation_support = [np.sum(data.support[idx]) for idx in orientation_idx]
                     anchor_idx = np.argmax(orientation_support)
-                    anchor_centroid = np.round(np.sum(data.pos[orientation_idx[anchor_idx]] *
-                                                    data.support[orientation_idx[anchor_idx], None], axis=0) /
-                                             orientation_support[anchor_idx]).astype(int)
+                    # anchor_centroid = np.round(np.sum(data.pos[orientation_idx[anchor_idx]] *
+                    #                                 data.support[orientation_idx[anchor_idx], None], axis=0) /
+                    #                          orientation_support[anchor_idx]).astype(int)
+                    weighted_positions = np.repeat(data.pos[orientation_idx[anchor_idx]],
+                                                   data.support[orientation_idx[anchor_idx]], axis=0)
+                    anchor_centroid = np.median(weighted_positions, axis=0).astype(int)
                     for i, orientation in enumerate(orientations_uniq):
                         centroid = (anchor_centroid +
                                     CENTROID_SHIFT_BY_ORIENTATION[orientation] -
                                     CENTROID_SHIFT_BY_ORIENTATION[orientations_uniq[anchor_idx]])
-                        junctions.append(Junction(chr1=chr1, chr2=chr2,
-                                                       pos1=centroid[0], pos2=centroid[1],
-                                                       orientation=orientation,
-                                                       evidence_type=data.evidence_type[orientation_idx[i]][0],
-                                                       support=orientation_support[i]
-                                                       ))
+                        junctions.append(Junction(chr1=chr1, chr2=chr2, pos1=centroid[0], pos2=centroid[1],
+                                                  orientation=orientation,
+                                                  evidence_type=data.evidence_type[orientation_idx[i]][0],
+                                                  support=orientation_support[i]))
         return junctions
 
     def extract_segments(self, junctions) -> list[RefSegment]:

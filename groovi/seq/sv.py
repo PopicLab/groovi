@@ -18,10 +18,15 @@ BP_TYPES = ["DEL", "INV", "DUP",
             "dupINVdel_A", "dupINVdel_B",
             "delINVdup_A", "delINVdup_B",
             "delINVdel_A",
+            "dDUP_A", "dDUP_B",
+            "dDUP_INV_A", "dDUP_INV_B", "dDUP_INV_C", "dDUP_INV_D",
+            "nrTRA_A", "nrTRA_B",
+            "INV_nrTRA_A", "INV_nrTRA_B", "INV_nrTRA_C",
+            "dupINV3_A", "dupINV3_B",
             "dupINVdup_A"]
 
 SVBpType = groovi.utils.types.make_enum("SVBpType", ["NEG", "BND"] + BP_TYPES, __name__)
-SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX12", "CPX10"], __name__)
+SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX12", "CPX10", "CPX15"], __name__)
 SV_CLASS_SETS_GT = {SVTypeSet.CPX12}
 TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
                                        SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
@@ -39,6 +44,19 @@ TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV,
                                        SVBpType.delINVdup_A, SVBpType.delINVdup_B,
                                        SVBpType.delINVdel_A,
                                        SVBpType.dupINVdup_A,
+                                       ],
+                     SVTypeSet.CPX15: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
+                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
+                                       SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
+                                       SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
+                                       SVBpType.delINVdup_A, SVBpType.delINVdup_B,
+                                       SVBpType.delINVdel_A,
+                                       SVBpType.dupINVdup_A,
+                                       SVBpType.dDUP_A, SVBpType.dDUP_B,
+                                       SVBpType.dDUP_INV_A, SVBpType.dDUP_INV_B, SVBpType.dDUP_INV_C, SVBpType.dDUP_INV_D,
+                                       SVBpType.nrTRA_A, SVBpType.nrTRA_B,
+                                       SVBpType.INV_nrTRA_A, SVBpType.INV_nrTRA_B, SVBpType.INV_nrTRA_C,
+                                       SVBpType.dupINV3_A, SVBpType.dupINV3_B,
                                        ]
                      }
 
@@ -90,7 +108,6 @@ class SVBreakpoint:
         return Junction(chr1=self.chr1, chr2=self.chr2, pos1=self.pos1, pos2=self.pos2,
                         orientation=getattr(JOrientation, self.orientation),
                         evidence_type=getattr(JSource, self.source), support=self.evidence)
-        return sv
 
     def __str__(self):
         return '\t'.join("{}: {}".format(k, v) for k, v in self.__dict__.items())

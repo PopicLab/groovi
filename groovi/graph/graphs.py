@@ -1,3 +1,5 @@
+from distutils.command.config import config
+
 from groovi.cli.config import Config
 from groovi.seq.constants import *
 from groovi.seq.signal_processing import SVSignalProcessor
@@ -93,6 +95,10 @@ class GrooviGraph:
             self._add_edges(head_id, tail_id, data={
                 FEAT_TYPE: torch.tensor([EDGE_FEATURE_TO_ID[EdgeFeature.SEG]], dtype=torch.int64),
                 FEAT: torch.tensor([[1]], dtype=torch.float32)})
+            if abs(segment.start - segment.end) <= self.config.tiny_segment_threshold:
+                self._add_edges(head_id, tail_id, data={
+                    FEAT_TYPE: torch.tensor([EDGE_FEATURE_TO_ID[EdgeFeature.IS_TINY_SEG]], dtype=torch.int64),
+                    FEAT: torch.tensor([[1]], dtype=torch.float32)})
 
     def add_reference_edges(self, ref_segments):
         for i in range(len(ref_segments) - 1):
@@ -123,7 +129,8 @@ class GrooviGraph:
 
     def add_edge_features(self, split_by_sign=True):
         # edge feature: change in depth
-        edge_mask = self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]
+        edge_mask = ((self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.SEG]) &
+                     (self.dgl_graph.edata[FEAT_TYPE] != EDGE_FEATURE_TO_ID[EdgeFeature.IS_TINY_SEG]))
         u, v = self.dgl_graph.edges()
         edge_mask = edge_mask & (u < v)
         u, v = u[edge_mask], v[edge_mask]

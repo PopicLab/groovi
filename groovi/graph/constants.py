@@ -26,6 +26,7 @@ class EdgeFeature(Enum):
     RR = 'RR'
     REF = 'REF'
     SEG = 'SEG'
+    IS_TINY_SEG = 'IS_TINY_SEG'
     RD = 'PD'
     RD_POS = 'RD_POS'
     RD_NEG = 'RD_NEG'

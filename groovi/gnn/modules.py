@@ -26,6 +26,7 @@ class RelGraphConvLayer(nn.Module):
         bias=True,
         dropout=0.0,
         update="WConcat",
+        layer_norm=False
     ):
         super().__init__()
         # set parameters
@@ -41,6 +42,12 @@ class RelGraphConvLayer(nn.Module):
         if self.bias:
             self.h_bias = nn.Parameter(torch.Tensor(out_feat))
             nn.init.zeros_(self.h_bias)
+
+        self.layer_norm = layer_norm
+        if layer_norm:
+            self.layer_norm_weight = nn.LayerNorm(
+                out_feat, elementwise_affine=True
+            )
 
         # update functions
         if self.update == "WConcat":
@@ -75,6 +82,9 @@ class RelGraphConvLayer(nn.Module):
                 ),  # aggregates m across edges (ie diff relationships), writes to h_reduced
             )
             h_reduced = g.ndata["h_reduced"]
+            if self.layer_norm:
+                h_reduced = self.layer_norm_weight(h_reduced)
+
             if self.bias:
                 h_reduced = h_reduced + self.h_bias
 
