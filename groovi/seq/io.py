@@ -20,17 +20,21 @@ def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
     header = pysam.VariantHeader()
     header.add_line('##INFO=<ID=CHR2,Number=1,Type=String,Description="Name of second chromosome">')
     header.add_line('##INFO=<ID=BKP_TYPE,Number=1,Type=String,Description="Breakpoint type">')
+    header.add_line('##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Breakpoint type">')
     header.add_line('##INFO=<ID=SUPPORT,Number=1,Type=Integer,Description="Read support">')
     header.add_line('##INFO=<ID=ORIENTATION,Number=1,Type=String,Description="Breakpoint orientation">')
     header.add_line('##INFO=<ID=SOURCE,Number=1,Type=String,Description="Breakpoint evidence source">')
+    header.add_sample("SAMPLE")
     for ctg in chr_index.contigs(): header.add_line("##contig=<ID=%s>\n" % ctg.name)
     vcf = pysam.VariantFile(vcf_fname, 'w', header=header)
     for sv in sv_bkps:
         vcf.write(vcf.new_record(contig=sv.chr1, start=sv.pos1, stop=sv.pos2,
-                                 info={"CHR2": sv.chr2, "BKP_TYPE": sv.type, "SUPPORT": sv.evidence,
+                                 info={"CHR2": sv.chr2, "BKP_TYPE": sv.type,
+                                       "BKP_TYPE": sv.type, "SUPPORT": sv.evidence,
                                        "ORIENTATION": sv.orientation, "SOURCE": sv.source},
                                  alleles=['N', "<%s>" % sv.type],
-                                 id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=None))
+                                 id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=None),
+                                 samples=[{'GT': (None, None)}])
     vcf.close()
     logging.info("Wrote breakpoints to %s" % vcf_fname)
 
