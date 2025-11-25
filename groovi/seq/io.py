@@ -25,6 +25,7 @@ def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
     header.add_line('##INFO=<ID=ORIENTATION,Number=1,Type=String,Description="Breakpoint orientation">')
     header.add_line('##INFO=<ID=SOURCE,Number=1,Type=String,Description="Breakpoint evidence source">')
     header.add_sample("SAMPLE")
+    header.formats.add('GT', number=1, type='String', description='Genotype')
     for ctg in chr_index.contigs(): header.add_line("##contig=<ID=%s>\n" % ctg.name)
     vcf = pysam.VariantFile(vcf_fname, 'w', header=header)
     for sv in sv_bkps:
@@ -33,8 +34,7 @@ def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
                                        "BKP_TYPE": sv.type, "SUPPORT": sv.evidence,
                                        "ORIENTATION": sv.orientation, "SOURCE": sv.source},
                                  alleles=['N', "<%s>" % sv.type],
-                                 id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=None),
-                                 samples=[{'GT': (None, None)}])
+                                 id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=[{'GT': (None, None)}]))
     vcf.close()
     logging.info("Wrote breakpoints to %s" % vcf_fname)
 
