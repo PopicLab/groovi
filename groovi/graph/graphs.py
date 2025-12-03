@@ -54,7 +54,7 @@ class GrooviGraph:
         self.dgl_graph: dgl.DGLGraph = dgl.graph(([], []))
         self.candidate_src: torch.LongTensor = []
         self.candidate_dst: torch.LongTensor = []
-        self.edges2support = defaultdict(int)
+        self.candidate_support: torch.LongTensor = []
         self.edges2source = defaultdict(list)
         self.node_to_id = {}
         self.id_to_node = {}
@@ -121,10 +121,11 @@ class GrooviGraph:
                 FEAT: torch.tensor([[j.support]], dtype=torch.float32)})
             self.candidate_src.append(src_node_id)
             self.candidate_dst.append(dst_node_id)
-            self.edges2support[(src_node_id, dst_node_id)] = j.support
+            self.candidate_support.append(j.support)
             self.edges2source[(src_node_id, dst_node_id)] = [j.source] # TODO: update after clustering change
-        self.candidate_src, self.candidate_dst = (torch.tensor(self.candidate_src, dtype=torch.int64),
-                                                  torch.tensor(self.candidate_dst, dtype=torch.int64))
+        self.candidate_src = torch.tensor(self.candidate_src, dtype=torch.int64)
+        self.candidate_dst = torch.tensor(self.candidate_dst, dtype=torch.int64)
+        self.candidate_support = torch.tensor(self.candidate_support, dtype=torch.float64)
 
 
     def add_edge_features(self, split_by_sign=True):
@@ -205,12 +206,7 @@ class GrooviGraph:
         # TODO: src/dst?
 
     def filter_candidate_edges(self, min_candidate_support=1):
-        src_nodes = []
-        dst_nodes = []
-        for src, dst in zip(self.candidate_src, self.candidate_dst):
-            support, _ = self.get_edge_support(src, dst)
-            if support < min_candidate_support: continue
-            src_nodes.append(src.item())
-            dst_nodes.append(dst.item())
-        self.candidate_src = torch.tensor(src_nodes, dtype=torch.int64)
-        self.candidate_dst = torch.tensor(dst_nodes, dtype=torch.int64)
+        high_evidence_mask = self.candidate_support >= min_candidate_support
+        self.candidate_src = self.candidate_src[high_evidence_mask]
+        self.candidate_dst = self.candidate_dst[high_evidence_mask]
+        self.candidate_support = self.candidate_support[high_evidence_mask]
