@@ -42,7 +42,7 @@ class StaticDataset(Dataset):
             self.graphs.append(self.load(path))
 
         self.transforms = T.Compose(config.transforms)
-        for g in tqdm(self.graphs, desc="Applying transforms, Filtering edges"):
+        for g in tqdm(self.graphs, desc="Applying transforms & filtering"):
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
             #g.add_hint()
