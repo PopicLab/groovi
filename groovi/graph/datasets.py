@@ -38,8 +38,7 @@ class StaticDataset(Dataset):
         self.config = config
         self.graphs: list[GrooviGraph] = []
         self.labels = []
-        graph_paths = config.graphs if not is_validation else config.graphs_validation
-        for path in tqdm(graph_paths, desc="Loading graphs"):
+        for path in tqdm(config.graphs) if not is_validation else tqdm(config.graphs_validation):
             self.graphs.append(self.load(path))
 
         self.transforms = T.Compose(config.transforms)
@@ -54,17 +53,12 @@ class StaticDataset(Dataset):
     def __len__(self):
         return len(self.graphs)
 
-
 class StaticEdgeDataset(StaticDataset):
     def __init__(self, config, is_validation=False):
         super().__init__(config, is_validation)
-        label_summary = []
-
         # perform edge labeling
-        self.labels: list[torch.LongTensor] = []
-        sv_class_matches_by_graph: list[list[str]] = []
-        
-        for i, graph in tqdm(enumerate(self.graphs), desc='labeling graph edges', total=len(self.graphs)):
+        label_summary = []
+        for i, graph in enumerate(self.graphs):
             tree: SVDB = SVDB(graph.vcf_path, config.classes)
             sv_class_matches = []
             label_summary.append(f"Graph {i}: {graph.vcf_path}")
@@ -80,16 +74,12 @@ class StaticEdgeDataset(StaticDataset):
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
                     f"Label {sv_class}, Distance {distance}, Support {support}, Types {edge_types}"
                 )
-            
-            sv_class_matches_by_graph.append(sv_class_matches)
-        
-        self.labels = [torch.tensor([self.config.class2label[c] for c in sv_class_matches], dtype=torch.int64) for sv_class_matches in sv_class_matches_by_graph]
 
-        # visualize graphs
-        if config.graph_visualization_interval > 0:
-            for i, (graph, sv_class_matches) in tqdm(enumerate(zip(self.graphs, sv_class_matches_by_graph)), desc=f'visualizing every {config.graph_visualization_interval} of {len(self.graphs)} graph', total=len(self.graphs)):
-                if i % config.graph_visualization_interval == 0:
-                    visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'), graph.candidate_src, graph.candidate_dst, sv_class_matches)
+            if config.graph_visualization_interval > 0 and i % config.graph_visualization_interval == 0:
+                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'), graph.candidate_src, graph.candidate_dst, sv_class_matches)
+
+            labels = [self.config.class2label[c] for c in sv_class_matches]
+            self.labels.append(torch.tensor(labels, dtype=torch.int64))
 
         with open(config.stats_file_path, "w") as f:
             f.write("\n".join(label_summary))
@@ -97,7 +87,6 @@ class StaticEdgeDataset(StaticDataset):
     def __getitem__(self, index):
         graph = self.graphs[index]
         return graph.dgl_graph, graph.candidate_src, graph.candidate_dst, self.labels[index]
-
 
 class StaticGraphDataset(StaticDataset):
     def __init__(self, config):
