@@ -31,7 +31,7 @@ def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
     for sv in sv_bkps:
         vcf.write(vcf.new_record(contig=sv.chr1, start=sv.pos1, stop=sv.pos2,
                                  info={"CHR2": sv.chr2, "BKP_TYPE": sv.type,
-                                       "BKP_TYPE": sv.type, "SUPPORT": sv.evidence,
+                                       "SVTYPE": sv.type, "SUPPORT": sv.evidence,
                                        "ORIENTATION": sv.orientation, "SOURCE": sv.source},
                                  alleles=['N', "<%s>" % sv.type],
                                  id=f"<{sv.type}>", qual=sv.qual, filter=None, samples=[{'GT': (None, None)}]))
