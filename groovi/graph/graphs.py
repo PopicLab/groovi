@@ -55,7 +55,6 @@ class GrooviGraph:
         self.candidate_src: torch.LongTensor = []
         self.candidate_dst: torch.LongTensor = []
         self.candidate_support: torch.LongTensor = []
-        self.edges2support = defaultdict(int)
         self.edges2source = defaultdict(list)
         self.node_to_id = {}
         self.id_to_node = {}
@@ -123,7 +122,6 @@ class GrooviGraph:
             self.candidate_src.append(src_node_id)
             self.candidate_dst.append(dst_node_id)
             self.candidate_support.append(j.support)
-            self.edges2support[(src_node_id, dst_node_id)] = j.support
             self.edges2source[(src_node_id, dst_node_id)] = [j.source] # TODO: update after clustering change
         self.candidate_src = torch.tensor(self.candidate_src, dtype=torch.int64)
         self.candidate_dst = torch.tensor(self.candidate_dst, dtype=torch.int64)
