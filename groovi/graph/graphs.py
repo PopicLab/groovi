@@ -188,6 +188,7 @@ class GrooviGraph:
         groovi_graph.add_reference_edges(segments)
         groovi_graph.add_novel_junction_edges(junctions)
         groovi_graph.add_edge_features()
+        groovi_graph.filter_candidate_edges(config.candidate_support_threshold)
         groovi_graph.vcf_path = config.vcf if hasattr(config, "vcf") else None
         groovi_graph.info_path = config.info if hasattr(config, "info") else None
         logging.info("Finished graph construction")
