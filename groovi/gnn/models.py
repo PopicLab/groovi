@@ -145,7 +145,8 @@ class EdgeClassificationModel(nn.Module):
             RelGraphConvLayer(config.rgcn_hidden_dim[i-1] if i > 0 else config.rgcn_input_dim,
                               config.rgcn_hidden_dim[i],
                               config.n_edge_types,
-                              update=config.update) for i in range(len(config.rgcn_hidden_dim))
+                              update=config.update,
+                              layer_norm=config.add_layernorm) for i in range(len(config.rgcn_hidden_dim))
         ])
 
         # MLP, vectors are twice as long due to concatenation of two nodes

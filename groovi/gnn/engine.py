@@ -125,7 +125,8 @@ def evaluate(config, model, graph):
             node_src = graph.id_to_node[s.item()]
             node_dst = graph.id_to_node[d.item()]
             sv_type = config.classes[predicted_class.item()]
-            support, _ = graph.get_edge_support(s, d)
+            if sv_type == SVBpType.NEG: continue
+            support, _ = graph.get_edge_support(s.cpu(), d.cpu())
             qual = int(float(prob.item() * 100))
             classified_edges.append(SVBreakpoint(sv_type, node_src.chr_name, node_src.ref_pos,
                                                  node_dst.chr_name, node_dst.ref_pos, qual,(None, None), support))
