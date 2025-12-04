@@ -88,8 +88,8 @@ def match_ddup_inv(interval_trees, tolerance=0):
 
 def match_nrtra(a_tree, b_tree, tolerance=0):
     """
-    Matches the nrTRA structure, which has two interlocking nrTRA-B intervals that overlap by one, and a nrTRA-A
-    interval that is enclosed by and adjacent to the outer boundaries of the two nrTRA-B intervals.
+    Matches the nrTRA structure, which has two interlocking nrTRA-A intervals that overlap by one, and a nrTRA-B
+    interval that is enclosed by and adjacent to the outer boundaries of the two nrTRA-A intervals.
     """
 
     interlocking_pairs = interlocking(b_tree, b_tree, tolerance)
@@ -218,7 +218,7 @@ SV_REGISTRY = {
     },
     'nrTRA': {
         'grammar': 'A_->_A',  # TODO also _A -> A_
-        'candidates': ['nrTRA_A', 'nrTRA_B'],
+        'candidates': ['nrTRA_B', 'nrTRA_A'],
         'match_fn': lambda x, tolerance: match_nrtra(x[0], x[1], tolerance),
         'dispersion': True,
     },
@@ -303,12 +303,13 @@ SV_REGISTRY = {
     'INVdel': {
         'grammar': 'AB->a',
         'candidates': ['INVdel_B', 'INVdel_A'],
+        'key_records': ['INVdel_B', 'INVdel_A'],
         'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, 'start'),
         'fragment_fn': lambda csv: [
-            (csv.second_interval[0] + 1, csv.first_interval[1], -1, -1, 'INV'),
+            (csv.second_interval[0], csv.first_interval[1], -1, -1, 'INV'),
             (csv.first_interval[1] + 1, csv.second_interval[1] - 1, -1, -1, 'CUT')
         ],
-        'start_stop_fn': lambda csv: (csv.second_interval[0] + 1, csv.first_interval[1] - 1),
+        'start_stop_fn': lambda csv: (csv.first_interval[0] + 1, csv.second_interval[1] - 1),
     },
     'dupINV': {
         'grammar': 'AB->Aba',

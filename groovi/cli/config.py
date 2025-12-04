@@ -76,6 +76,8 @@ STITCHING_DEFAULTS = {
     "filter_overlaps": True,
     "gap_file": None,
     "minimum_length": 50,
+    "use_cached_predictions": False,
+    "prioritize_evidence": True
 }
 
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
@@ -166,8 +168,8 @@ class DiscoverConfig(Config):
         self.bkp_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_classified.vcf")
         self.complex_sv_vcf_file_path = os.path.join(self.results_dir, "groovi.vcf")
         # TODO: add other outputs
-        self.bkp_unmatched_file_path = os.path.join(self.log_dir, "groovi_bkps_unmatched.vcf")
-        self.complex_sv_unfiltered_file_path = os.path.join(self.log_dir, "groovi_unfiltered.vcf")
+        self.bkp_unmatched_file_path = os.path.join(self.results_dir, "groovi_bkps_unmatched.vcf")
+        self.complex_sv_unfiltered_file_path = os.path.join(self.results_dir, "groovi_unfiltered.vcf")
 
         # -------- setup compute
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.gpu_ids))

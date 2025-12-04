@@ -17,9 +17,9 @@ def _create_sample_recs():
         {'id': 'INV_dDUP_A', 'start': 10, 'stop': 50},
         {'id': 'INV_dDUP_B', 'start': 11, 'stop': 30},
         {'id': 'DEL', 'start': 10, 'stop': 20},
-        {'id': 'nrTRA_B', 'start': 10, 'stop': 100},
-        {'id': 'nrTRA_A', 'start': 11, 'stop': 119},
-        {'id': 'nrTRA_B', 'start': 99, 'stop': 120},
+        {'id': 'nrTRA_A', 'start': 10, 'stop': 100},
+        {'id': 'nrTRA_B', 'start': 11, 'stop': 119},
+        {'id': 'nrTRA_A', 'start': 99, 'stop': 120},
     ]
 
     recs = []
@@ -80,12 +80,19 @@ class TestStitching(TestCase):
         Tests to verify the various paths through this function that depend on SV types and fragment data
         """
 
+        class MockContig:
+            """
+            Dummy contig clone for testing VCF contig naming
+            """
+            def __init__(self, name):
+                self.name = name
+
         recs = _create_sample_recs()
 
         merged_recs = find_matches(recs)
 
         tmp_path = tempfile.mkstemp(suffix='.vcf')[1]
-        export_callset_to_vcf(merged_recs, tmp_path, contigs=[], sep_frag_recs=False)
+        export_callset_to_vcf(merged_recs, tmp_path, contigs=[MockContig('chr1')], sep_frag_recs=False)
 
     def test_filter_merged_recs(self):
 
@@ -247,6 +254,29 @@ class TestComplexSV(TestCase):
         self.assertEqual(19, vcf_info['stop'] - 1)
 
 
+    def test_prioritize_evidence(self):
+        """
+        Test the toggle for filtering overlapping stitched SVs by .qual or by .evidence
+        """
+        overlapping_data = [
+            [SVBreakpoint(sv_type='DEL', chr1='chr1', pos1=5, chr2='chr1', pos2=400, qual=30, gt=(None, None), evidence=20)],
+            [SVBreakpoint(sv_type='INV', chr1='chr1', pos1=10, chr2='chr1', pos2=300, qual=10, gt=(None, None), evidence=30)],
+            [SVBreakpoint(sv_type='DUP', chr1='chr1', pos1=401, chr2='chr1', pos2=1000, qual=40, gt=(None, None), evidence=3)],
+            [SVBreakpoint(sv_type='INVdel_A', chr1='chr1', pos1=600, chr2='chr1', pos2=2000, qual=20, evidence=5),
+             SVBreakpoint(sv_type='INVdel_B', chr1='chr1', pos1=601, chr2='chr1', pos2=3000, qual=25, evidence=7)],
+            [SVBreakpoint(sv_type='dupINVdel_A', chr1='chr2', pos1=10, chr2='chr2', pos2=800, qual=0, evidence=0)],
+        ]
+
+        csvs = [ComplexSV.from_records(bkps) for bkps in overlapping_data]
+
+        filtered_csvs = sorted(filter_merged_recs(csvs, prioritize_evidence=False), key=lambda x: (x.chrom, x.occupied_intervals))
+        expected_result_qual = [csvs[0], csvs[2], csvs[4]]
+        self.assertListEqual(filtered_csvs, expected_result_qual)
+
+        filtered_csvs = sorted(filter_merged_recs(csvs, prioritize_evidence=True), key=lambda x: (x.chrom, x.occupied_intervals))
+        expected_result_evidence = [csvs[1], csvs[3], csvs[4]]
+        self.assertListEqual(filtered_csvs, expected_result_evidence)
+
 class TestSVTypes(TestCase):
 
     def run_pipeline(self, input_recs, expected_calls, expected_fragments = None):
@@ -402,12 +432,12 @@ class TestSVTypes(TestCase):
         and adjacent to the far endpoints of the A pair
         """
         data = [
-            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'nrTRA_B'},
-            {'start': 2, 'stop': 59, 'qual': 100, 'id': 'nrTRA_A'},
-            {'start': 19, 'stop': 60, 'qual': 100, 'id': 'nrTRA_B'},
-            {'start': 101, 'stop': 120, 'qual': 100, 'id': 'nrTRA_B'},
-            {'start': 102, 'stop': 124, 'qual': 100, 'id': 'nrTRA_A'},
-            {'start': 119, 'stop': 125, 'qual': 100, 'id': 'nrTRA_B'},
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'nrTRA_A'},
+            {'start': 2, 'stop': 59, 'qual': 100, 'id': 'nrTRA_B'},
+            {'start': 19, 'stop': 60, 'qual': 100, 'id': 'nrTRA_A'},
+            {'start': 101, 'stop': 120, 'qual': 100, 'id': 'nrTRA_A'},
+            {'start': 102, 'stop': 124, 'qual': 100, 'id': 'nrTRA_B'},
+            {'start': 119, 'stop': 125, 'qual': 100, 'id': 'nrTRA_A'},
         ]
         expected_result = [
             {'start': 2, 'stop': 19, 'sv_type': 'nrTRA', 'target': 59, 'sv_len': 17},
