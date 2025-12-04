@@ -10,6 +10,7 @@ import os
 import pickle
 import torch
 from torch.utils.data import IterableDataset, Dataset
+from tqdm import tqdm
 import yaml
 
 class StreamingGraphDataset(IterableDataset):
@@ -37,10 +38,11 @@ class StaticDataset(Dataset):
         self.config = config
         self.graphs: list[GrooviGraph] = []
         self.labels = []
-        for path in config.graphs if not is_validation else config.graphs_validation:
+        for path in tqdm(config.graphs) if not is_validation else tqdm(config.graphs_validation):
             self.graphs.append(self.load(path))
+
         self.transforms = T.Compose(config.transforms)
-        for g in self.graphs:
+        for g in tqdm(self.graphs, desc="Applying transforms & filtering"):
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
             #g.add_hint()
@@ -50,7 +52,6 @@ class StaticDataset(Dataset):
 
     def __len__(self):
         return len(self.graphs)
-
 
 class StaticEdgeDataset(StaticDataset):
     def __init__(self, config, is_validation=False):
@@ -73,7 +74,8 @@ class StaticEdgeDataset(StaticDataset):
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
                     f"Label {sv_class}, Distance {distance}, Support {support}, Types {edge_types}"
                 )
-            if i % config.graph_visualization_interval == 0:
+
+            if config.graph_visualization_interval > 0 and i % config.graph_visualization_interval == 0:
                 visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'), graph.candidate_src, graph.candidate_dst, sv_class_matches)
 
             labels = [self.config.class2label[c] for c in sv_class_matches]
@@ -85,7 +87,6 @@ class StaticEdgeDataset(StaticDataset):
     def __getitem__(self, index):
         graph = self.graphs[index]
         return graph.dgl_graph, graph.candidate_src, graph.candidate_dst, self.labels[index]
-
 
 class StaticGraphDataset(StaticDataset):
     def __init__(self, config):
