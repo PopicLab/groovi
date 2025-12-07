@@ -85,7 +85,7 @@ class SVBreakpoint:
         if 'END_CHROM' in rec.info and rec.info['END_CHROM'] is not None:
             chr2 = rec.info['END_CHROM']
         sv_type = rec.info['SVTYPE'] if 'SVTYPE' in rec.info else SVBpType.BND
-        sv = SVBreakpoint(sv_type, chr1, rec.start - 1, chr2, rec.stop - 1, rec.qual, gt)
+        sv = SVBreakpoint(sv_type, chr1, rec.start, chr2, rec.stop, rec.qual, gt)
         if 'ORIENTATION' in rec.info and rec.info['ORIENTATION'] is not None:
             sv.orientation = rec.info['ORIENTATION']
         if 'SUPPORT' in rec.info and rec.info['SUPPORT'] is not None:

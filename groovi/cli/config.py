@@ -34,6 +34,7 @@ GENERATE_DEFAULTS = {
     'recover_ins': True,
     'recover_clipping': True,
     'recover_subfrag': True,
+    'recover_missing_segs': True,
     'interchrom': False,
     'tiny_segment_threshold': 5,
     'cluster': True,
