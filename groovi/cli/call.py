@@ -1,5 +1,6 @@
 from groovi.cli.config import DiscoverConfig
 from groovi.graph.datasets import StreamingGraphDataset
+from groovi.graph.visualize import visualize_groovi_graph
 from groovi.gnn.models import EdgeClassificationModel
 from groovi.gnn.engine import *
 import groovi.seq.io as io
@@ -15,12 +16,19 @@ def main(config_yaml):
     else:
         # --------- 1. Model Setup--------
         model = EdgeClassificationModel(config)
-        model.load_state_dict(torch.load(config.model))
+        model.load_state_dict(torch.load(config.model, map_location=config.device))
         model = model.to(device=config.device)
 
         # ------ 2. Breakpoint classification ------
         logging.info("Running model prediction...")
-        classified_sv_bkps = evaluate(config, model, next(iter(StreamingGraphDataset(config))))
+        graph = next(iter(StreamingGraphDataset(config)))
+        classified_sv_bkps = evaluate(config, model, graph)
+        
+        # ------ 3. Visualization ------
+        visualize_groovi_graph(graph, os.path.join(config.img_dir, "graph.html"), graph.candidate_src, graph.candidate_dst, expected_labels=None, predicted_labels=[svbkp.type for svbkp in classified_sv_bkps])
+
+        # ----- 4. Filter Neg, Write classified breakpoints to VCF ------
+        classified_sv_bkps = [sv for sv in classified_sv_bkps if sv.type != SVBpType.NEG]
         logging.info("Writing breakpoint classification results...")
         io.write_bkp_vcf(config.bkp_vcf_file_path, classified_sv_bkps, config.fai_index)
 
