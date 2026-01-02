@@ -9,26 +9,26 @@ import logging
 from pycues import *
 
 
-BP_TYPES = ["DEL", "INV", "DUP",
-            "DUP_INV_A", "DUP_INV_B",
+BP_TYPES = ["DEL", "DUP", "INV", "INV_A", "INV_B",
+            "DUP_INV_A", "DUP_INV_B", "DUP_INV_C",
             "INVdel_A", "INVdel_B",
             "delINV_A", "delINV_B",
             "INVdup_A", "INVdup_B",
             "dupINV_A", "dupINV_B",
             "dupINVdel_A", "dupINVdel_B",
             "delINVdup_A", "delINVdup_B",
-            "delINVdel_A",
+            "delINVdel_A", "delINVdel_B",
             "dDUP_A", "dDUP_B",
             "dDUP_INV_A", "dDUP_INV_B", "dDUP_INV_C", "dDUP_INV_D",
             "nrTRA_A", "nrTRA_B",
             "INV_nrTRA_A", "INV_nrTRA_B", "INV_nrTRA_C",
             "dupINV3_A", "dupINV3_B",
-            "dupINVdup_A"]
+            "dupINVdup_A", "dupINVdup_B"]
 
 SVBpType = groovi.utils.types.make_enum("SVBpType", ["NEG", "BND"] + BP_TYPES, __name__)
 SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX12", "CPX10", "CPX15"], __name__)
 SV_CLASS_SETS_GT = {SVTypeSet.CPX12}
-TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
+TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
                                        SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
                                        SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
                                        SVBpType.INVdup_A, SVBpType.INVdup_B, SVBpType.dupINV_A, SVBpType.dupINV_B,
@@ -37,15 +37,16 @@ TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV,
                                        SVBpType.delINVdel_A,
                                        SVBpType.dupINVdup_A,
                                        ],
-                     SVTypeSet.CPX10: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
-                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
+                     SVTypeSet.CPX10: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV,
+                                       SVBpType.INV_A, SVBpType.INV_B,
+                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
                                        SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
                                        SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
                                        SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                                       SVBpType.delINVdel_A,
-                                       SVBpType.dupINVdup_A,
+                                       SVBpType.delINVdel_A, SVBpType.delINVdel_B,
+                                       SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
                                        ],
-                     SVTypeSet.CPX15: [SVBpType.NEG, SVBpType.DEL, SVBpType.INV, SVBpType.DUP,
+                     SVTypeSet.CPX15: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
                                        SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
                                        SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
                                        SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
