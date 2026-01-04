@@ -142,7 +142,7 @@ class SVDB:
     Supports filtering by: distance and breakpoint type/orientation
     """
     def __init__(self, vcf_path, sv_classes_to_label, store_type="KDTree"):
-        logging.info('Loading SV breakpoint from {}'.format(vcf_path))
+        logging.info('Loading SV breakpoint records from {}'.format(vcf_path))
         self.sv_classes_to_label = sv_classes_to_label
         self.sv_bp_records = [sv for sv in io.vcf_iter(vcf_path)]
         self.chr2idx = defaultdict(list)

@@ -12,7 +12,7 @@ def main(config_yaml):
 
     # --------- 1. Model Setup--------
     model = EdgeClassificationModel(config)
-    model.load_state_dict(torch.load(config.model))
+    model.load_state_dict(torch.load(config.model, map_location=config.device))
     model = model.to(device=config.device)
 
     # ------ 2. Breakpoint classification ------
