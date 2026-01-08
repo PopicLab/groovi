@@ -9,17 +9,18 @@ import torch
 
 def main(config_yaml):
     config = DiscoverConfig(config_yaml)
-
-    # --------- 1. Model Setup--------
-    model = EdgeClassificationModel(config)
-    model.load_state_dict(torch.load(config.model, map_location=config.device))
-    model = model.to(device=config.device)
-
-    # ------ 2. Breakpoint classification ------
-    logging.info("Running model prediction...")
-    classified_sv_bkps = evaluate(config, model, next(iter(StreamingGraphDataset(config))))
-    logging.info("Writing breakpoint classification results...")
-    io.write_bkp_vcf(config.bkp_vcf_file_path, classified_sv_bkps, config.fai_index)
+    if config.use_cached_predictions:
+        classified_sv_bkps = [sv for sv in io.vcf_iter(config.bkp_vcf_file_path)]
+    else:
+        # --------- 1. Model Setup--------
+        model = EdgeClassificationModel(config)
+        model.load_state_dict(torch.load(config.model, map_location=config.device))
+        model = model.to(device=config.device)
+        # ------ 2. Breakpoint classification ------
+        logging.info("Running model prediction...")
+        classified_sv_bkps = evaluate(config, model, next(iter(StreamingGraphDataset(config))))
+        logging.info("Writing breakpoint classification results...")
+        io.write_bkp_vcf(config.bkp_vcf_file_path, classified_sv_bkps, config.fai_index)
 
     # ------ 3. Breakpoint stitching/filtering ------
     generate_merged_callset(classified_sv_bkps, config)

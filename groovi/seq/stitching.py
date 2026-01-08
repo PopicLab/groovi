@@ -5,6 +5,8 @@ import pysam
 import re
 import argparse
 import math
+
+from groovi.cli.config import DiscoverConfig
 from groovi.seq.sv import SVBreakpoint
 import groovi.seq.io as io
 import logging
@@ -28,6 +30,9 @@ class ComplexSV:
             self._set_key_intervals()
         self.occupied_intervals = None
         self.set_occupied_intervals()
+
+    def __str__(self):
+        return repr((self.sv_type, self.chrom, self.qual, self.records))
 
     @staticmethod
     def from_records(recs: Iterable[SVBreakpoint]):
@@ -240,12 +245,18 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
     return all_matches
 
 
-def filter_merged_recs(merged_recs):
+def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=False):
     # filter the list of ComplexSV objects created by dispatch_match_functions()
     # taking the higher-confidence ComplexSV in the case of any collision
     chrom_intervals = defaultdict(IntervalTree)
     filtered_recs = []
-    for rec in sorted(merged_recs, key=lambda r: -r.qual):
+
+    if prioritize_evidence:
+        key_func = lambda csv: -sum([rec.evidence for rec in csv.records]) / len(csv.records)
+    else:
+        key_func = lambda csv: -csv.qual
+
+    for rec in sorted(merged_recs, key=key_func):
         if rec.chrom not in chrom_intervals or \
                 not any(chrom_intervals[rec.chrom].overlap(*occupied_interval) for occupied_interval in rec.occupied_intervals):
             for occupied_interval in rec.occupied_intervals:
@@ -260,32 +271,24 @@ def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=Fal
     """
     Export function to write list of post-(merge+filter) ComplexSV objects to VCF
     """
-    with open(output_path, "w") as vcf:
-        vcf.write("##fileformat=VCFv4.2\n")
-        for ctg in contigs:
-            vcf.write("##contig=<ID=%s,length=%d>\n" % (ctg.name, ctg.len))
-        vcf.write(
-            "#%s\n" % "\t".join(["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", "SAMPLE"]))
-    vcf_file = VariantFile(output_path)
-    for i in range(22):
-        vcf_file.header.contigs.add("chr%d" % (i + 1))
-    vcf_file.header.contigs.add("chrX")
-    vcf_file.header.contigs.add("chrY")
-    vcf_file.header.info.add('END', number=1, type='Integer',
-                             description="End position of the variant described in this record")
-    vcf_file.header.info.add('SVID', number=1, type='String', description="ID of parent SV of which this record is one part")
-    vcf_file.header.info.add('SVTYPE', number=1, type='String', description="type of parent SV of which this record is one part")
-    vcf_file.header.info.add('OP_TYPE', number=1, type='String', description="Type of operation performed for the corresponding record")
-    vcf_file.header.info.add('INSORD', number=1, type='Integer', description='Insertion order for insertions at given position')
-    vcf_file.header.info.add('SVLEN', number=1, type='Integer', description="Length of structural variant")
-    vcf_file.header.info.add('TARGET', number=1, type='Integer', description="Target location for dispersion or translocation")
-    vcf_file.header.info.add('TARGET_CHROM', number=1, type='String', description="Target chromosome for a dispersed duplication or translocation")
-    vcf_file.header.info.add('FRAGMENT_INTERVALS', number=1, type='String',
-                             description="Fragment intervals for SV components")
-    vcf_file.header.info.add('GRAMMAR', number=1, type='String', description="Grammar of the structural variant")
-    vcf_file.header.formats.add('GT', number=1, type='String', description="Genotype")
+    header = pysam.VariantHeader()
+    for ctg in contigs: header.add_line("##contig=<ID=%s>\n" % ctg.name)
+    header.info.add('END', number=1, type='Integer',
+                    description="End position of the variant described in this record")
+    header.info.add('SVID', number=1, type='String', description="ID of parent SV of which this record is one part")
+    header.info.add('SVTYPE', number=1, type='String', description="type of parent SV of which this record is one part")
+    header.info.add('OP_TYPE', number=1, type='String', description="Type of operation performed for the corresponding record")
+    header.info.add('INSORD', number=1, type='Integer', description='Insertion order for insertions at given position')
+    header.info.add('SVLEN', number=1, type='Integer', description="Length of structural variant")
+    header.info.add('TARGET', number=1, type='Integer', description="Target location for dispersion or translocation")
+    header.info.add('TARGET_CHROM', number=1, type='String', description="Target chromosome for a dispersed duplication or translocation")
+    header.info.add('FRAGMENT_INTERVALS', number=1, type='String',
+                    description="Fragment intervals for SV components")
+    header.info.add('GRAMMAR', number=1, type='String', description="Grammar of the structural variant")
+    header.formats.add('GT', number=1, type='String', description="Genotype")
+    header.add_sample("SAMPLE")
 
-    vcf_out_file = VariantFile(output_path, 'w', header=vcf_file.header)
+    vcf_out_file = VariantFile(output_path, 'w', header=header)
     for parent_id, rec in enumerate(filtered_recs):
         vcf_info_dict = rec.get_vcf_info()
         frag_info_dicts = rec.get_bed_info()
@@ -366,7 +369,8 @@ def diagnostics(input_recs, filtered_recs):
         logging.info(f'{sv_type}\nExpected edges: {edge_types}')
         logging.info(f'Num edges: {edge_string}\nNum stitched and called after filtering: {sv_counter[sv_type]}. \n')
 
-    logging.info(f"Maximum SV length: {max([max([rec.len for rec in csv.records]) for csv in filtered_recs])}")
+    if filtered_recs:
+        logging.info(f"Maximum SV length: {max([max([rec.len for rec in csv.records]) for csv in filtered_recs])}")
 
 
 def load_exclude_list(gap_file):
@@ -388,7 +392,7 @@ def load_exclude_list(gap_file):
     return exclude_list
 
 
-def generate_merged_callset(input_recs, config):
+def generate_merged_callset(input_recs: List[SVBreakpoint], config: DiscoverConfig):
     """
     Main stitching function.
     :param input_callset: list of SVBreakpoint objects from model predictions
@@ -444,8 +448,8 @@ def generate_merged_callset(input_recs, config):
     merged_recs = find_matches(input_recs, tolerance=config.breakpoint_threshold)
 
     if config.complex_sv_unfiltered_file_path:
-        export_callset_to_vcf(merged_recs, output_path=config.complex_sv_unfiltered_file_path, contigs=[],
-                              sep_frag_recs=config.sep_frag_recs)
+        export_callset_to_vcf(merged_recs, output_path=config.complex_sv_unfiltered_file_path,
+                              contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
 
     # filter stitched SVs by minimum length
 
@@ -463,11 +467,11 @@ def generate_merged_callset(input_recs, config):
     logging.info(f'Found {len(merged_recs)} stitched SVs')
 
     if config.filter_overlaps:
-        filtered_recs = filter_merged_recs(filtered_recs)
+        filtered_recs = filter_merged_recs(filtered_recs, config.prioritize_evidence)
         print(f'Filtered to {len(filtered_recs)} stitched SVs')
 
-    export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_vcf_file_path, contigs=[],
-                          sep_frag_recs=config.sep_frag_recs)
+    export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_vcf_file_path,
+                          contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
 
     diagnostics(input_recs, filtered_recs)
 
