@@ -36,19 +36,32 @@ def interlocking(left_tree, right_tree, tolerance=0, margin=0):
     return interlocking_pairs
 
 
-def left_right_adjacent(pairs, tolerance=0, side='both'):
+def left_right_adjacent(pairs, tolerance=0, side='either'):
+    """
+    Filters a set of interval pairs to entries where the left and/or right edges are within 1 position (within tolerance)
+    :param pairs: iterable of interval pairs
+    :param tolerance: Maximum distance positions can be to be considered adjacent
+    :param side: 'start', 'end', 'both', or 'either'. 'start' and 'end' return cases where the start or ends are adjacent,
+                'both' returns cases where both start and end are adjacent. 'either' returns when either start or end are adjacent
+    :return: list of interval pairs fitting adjacency criteria
+    """
     adjacent_pairs = []
 
-    start = side in ['start', 'both']
-    end = side in ['end', 'both']
+    start = side in ['start', 'either']
+    end = side in ['end', 'either']
+    both = side == 'both'
 
     for i_left, i_right in pairs:
-        if start and approx_equal(abs(i_right.pos1 - i_left.pos1), 1, tolerance) or end and approx_equal(abs(i_right.pos2 - i_left.pos2), 1, tolerance):
+        left_adj = approx_equal(abs(i_right.pos1 - i_left.pos1), 1, tolerance)
+        right_adj = approx_equal(abs(i_right.pos2 - i_left.pos2), 1, tolerance)
+        if both and left_adj and right_adj or \
+            start and left_adj or \
+            end and right_adj:
             adjacent_pairs.append((i_left, i_right))
     return adjacent_pairs
 
 
-def interlocking_adjacent(left_tree, right_tree, tolerance=0, side='both'):
+def interlocking_adjacent(left_tree, right_tree, tolerance=0, side='either'):
     """
     Finds the set of pairs where left and right intervals interlock and the starts or ends are adjacent
     """
@@ -60,27 +73,23 @@ def interlocking_adjacent(left_tree, right_tree, tolerance=0, side='both'):
 
 def match_ddup_inv(interval_trees, tolerance=0):
     """
-    dDUP_INV has four record types A, B, C, D with A and B interlocking adjacent and C enveloping D,
-    adjacent at the target. B and C share the same start, and A's end and D's start are shared.
-    Symmetric version swaps order (so start/end relationships also swap)
+    dDUP_INV has four record types A, B, C, D with A and B interlocking adjacent on both sides and C enveloping D,
+    adjacent at the target. B and C share the same start, and A's end and D's start are shared. The CD adjacency
+    (the target) can be before or after the AB region.
     """
     matches = []
 
-    ab_pairs = interlocking_adjacent(interval_trees[0], interval_trees[1], tolerance)
+    ab_pairs = interlocking_adjacent(interval_trees[0], interval_trees[1], tolerance=tolerance, side='both')
     cd_pairs = envelop_adjacent(interval_trees[2], interval_trees[3], tolerance)
 
     cd_tree = IntervalTree.from_tuples([(min(c.pos1, d.pos1), max(c.pos2, d.pos2), (c, d)) for c, d in cd_pairs])
 
     for a, b in ab_pairs:
         candidates = cd_tree.overlap(min(a.pos1, b.pos1) - tolerance, max(a.pos2, b.pos2) + tolerance)
-        if not candidates:
-            continue
         for cd in candidates:
             c, d = cd.data
-            if a.pos1 - tolerance < b.pos1 and approx_equal(b.pos1, c.pos1, tolerance) and approx_equal(a.pos2, d.pos1, tolerance):
-                matches.append([a, b, c, d])
-
-            if a.pos2 + tolerance > b.pos2 and approx_equal(b.pos2,  c.pos2, tolerance) and approx_equal(a.pos1, d.pos2, tolerance):
+            if approx_equal(b.pos1, c.pos1, tolerance) and c.pos2 > b.pos2 or \
+                approx_equal(a.pos2, c.pos2) and c.pos1 < a.pos1:
                 matches.append([a, b, c, d])
 
     return matches
@@ -142,7 +151,7 @@ def envelop(left_tree, right_tree, tolerance=0):
     return valid_pairs
 
 
-def envelop_adjacent(left_tree, right_tree, tolerance=0, side='both'):
+def envelop_adjacent(left_tree, right_tree, tolerance=0, side='either'):
     """
     Finds the pairs of intervals where the left interval envelops the right interval and
     the one set of endpoints are adjacent to each other
@@ -191,8 +200,9 @@ SV_REGISTRY = {
     },
     'INV': {
         'grammar': 'A->a',
-        'candidates': ['INV'],
-        'match_fn': lambda x, tolerance: identity_match(x, tolerance),
+        'candidates': ['INV_A', 'INV_B'],
+        'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, 'both'),
+        'start_stop_fn': lambda csv: (csv.records[0].pos1 + 1, csv.records[0].pos2),
     },
     'DUP': {
         'grammar': 'A->AA',
@@ -201,7 +211,7 @@ SV_REGISTRY = {
     },
     'DUP_INV': {
         'grammar': 'A->aa',
-        'candidates': ['DUP_INV_A', 'DUP_INV_B', 'DUP_INV_A'],
+        'candidates': ['DUP_INV_A', 'DUP_INV_B', 'DUP_INV_C'],
         'match_fn': lambda x, tolerance: interlocking_intersection(x[0], x[1], x[2], tolerance),
         'start_stop_fn': lambda csv: (csv.records[1].pos1, csv.records[1].pos2),
         'fragment_fn': lambda csv: [
@@ -266,8 +276,8 @@ SV_REGISTRY = {
     },
     'delINVdel': {
         'grammar': 'ABC->b',
-        'candidates': ['delINVdel_A', 'delINVdel_A'],
-        'key_records': ['delINVdel_A', 'delINVdel_A'],
+        'candidates': ['delINVdel_A', 'delINVdel_B'],
+        'key_records': ['delINVdel_A', 'delINVdel_B'],
         'match_fn': lambda x, tolerance: interlocking(x[0], x[1], tolerance, margin=1),
         'fragment_fn': lambda csv: [
             (csv.first_interval[0] + 1, csv.second_interval[0] - 1, -1, -1, 'CUT'),
@@ -279,8 +289,8 @@ SV_REGISTRY = {
     },
     'dupINVdup': {
         'grammar': 'ABC->AcbaA',
-        'candidates': ['dupINVdup_A', 'dupINVdup_A'],
-        'key_records': ['dupINVdup_A', 'dupINVdup_A'],
+        'candidates': ['dupINVdup_A', 'dupINVdup_B'],
+        'key_records': ['dupINVdup_A', 'dupINVdup_B'],
         'match_fn': lambda x, tolerance: interlocking(x[0], x[1], tolerance),
         'fragment_fn': lambda csv: [
             (csv.first_interval[0], csv.second_interval[0], csv.first_interval[1] - 1, csv.first_interval[1] + 1, 'COPYinv-PASTE'),
@@ -302,8 +312,8 @@ SV_REGISTRY = {
     },
     'INVdel': {
         'grammar': 'AB->a',
-        'candidates': ['INVdel_B', 'INVdel_A'],
-        'key_records': ['INVdel_B', 'INVdel_A'],
+        'candidates': ['INVdel_A', 'INVdel_B'],
+        'key_records': ['INVdel_A', 'INVdel_B'],
         'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, 'start'),
         'fragment_fn': lambda csv: [
             (csv.second_interval[0], csv.first_interval[1], -1, -1, 'INV'),
