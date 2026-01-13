@@ -37,17 +37,18 @@ class StaticDataset(Dataset):
         super().__init__()
         self.config = config
         self.graphs: list[GrooviGraph] = []
+        self.annotations: list[String] = config.graphs_info if not is_validation else config.graphs_info_validation
         self.labels = []
-        for path in tqdm(config.graphs) if not is_validation else tqdm(config.graphs_validation):
-            self.graphs.append(self.load(path))
-
         self.transforms = T.Compose(config.transforms)
-        for g in tqdm(self.graphs, desc="Applying transforms & filtering"):
+        logging.info(f"Graph loading/transform...")
+        for path in tqdm(config.graphs) if not is_validation else tqdm(config.graphs_validation):
+            g = self.load(path)
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
-            #g.add_hint()
+            self.graphs.append(self.load(path))
 
-    def load(self, path: str) -> GrooviGraph:
+    @staticmethod
+    def load(path: str) -> GrooviGraph:
         with open(path, 'rb') as f: return pickle.load(f)
 
     def __len__(self):
@@ -58,28 +59,30 @@ class StaticEdgeDataset(StaticDataset):
         super().__init__(config, is_validation)
         # perform edge labeling
         label_summary = []
-        for i, graph in enumerate(self.graphs):
-            tree: SVDB = SVDB(graph.vcf_path, config.classes)
+        logging.info(f"Graph labeling...")
+        for i, graph_info in enumerate(zip(self.graphs, self.annotations)):
+            graph, vcf_path = graph_info
+            tree: SVDB = SVDB(vcf_path, config.classes)
             sv_class_matches = []
-            label_summary.append(f"Graph {i}: {graph.vcf_path}")
-            for src, dst in zip(graph.candidate_src, graph.candidate_dst):
+            label_summary.append(f"Graph {i}: {vcf_path}")
+            for src, dst, support in zip(graph.candidate_src, graph.candidate_dst, graph.candidate_support):
                 node_src = graph.id_to_node[src.item()]
                 node_dst = graph.id_to_node[dst.item()]
                 sv_class, distance = tree.find_best_label(query=np.array([node_src.ref_pos, node_dst.ref_pos]),
                                                           chr1=node_src.chr_name, chr2=node_dst.chr_name, k=5,
                                                           orientation=NODE_TYPES_TO_ORIENTATION[(node_src.type, node_dst.type)])
                 sv_class_matches.append(sv_class)
-                support, edge_types = graph.get_edge_support(src, dst)
+                edge_types = graph.get_edge_types(src, dst)
                 label_summary.append(
                     f"Graph {i}, Edge ({node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}): "
                     f"Label {sv_class}, Distance {distance}, Support {support}, Types {edge_types}"
                 )
-
-            if config.graph_visualization_interval > 0 and i % config.graph_visualization_interval == 0:
-                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'), graph.candidate_src, graph.candidate_dst, sv_class_matches)
-
             labels = [self.config.class2label[c] for c in sv_class_matches]
             self.labels.append(torch.tensor(labels, dtype=torch.int64))
+
+            if config.graph_visualization_interval > 0 and i % config.graph_visualization_interval == 0:
+                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'),
+                                       graph.candidate_src, graph.candidate_dst, sv_class_matches)
 
         with open(config.stats_file_path, "w") as f:
             f.write("\n".join(label_summary))
@@ -92,8 +95,8 @@ class StaticGraphDataset(StaticDataset):
     def __init__(self, config):
         super().__init__(config)
         labels = []
-        for graph in self.graphs:
-            with open(graph.info_path, 'r') as file:
+        for graph, info_path in zip(self.graphs, self.annotations):
+            with open(info_path, 'r') as file:
                 annotation = yaml.safe_load(file) # graph-level labels
                 assert 'class' in annotation
                 #labels.append(SV_GRAPH_CLASS_TO_ID_FN[annotation['class']]) # todo

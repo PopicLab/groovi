@@ -7,9 +7,9 @@ from groovi.seq.sv import SVBreakpoint
 def _create_sample_recs():
     data = [
         {'id': 'delINVdel_A', 'start': 1000, 'stop': 1100},
-        {'id': 'delINVdel_A', 'start': 1050, 'stop': 1400},
+        {'id': 'delINVdel_B', 'start': 1050, 'stop': 1400},
         {'id': 'dupINVdup_A', 'start': 1000, 'stop': 1100},
-        {'id': 'dupINVdup_A', 'start': 1050, 'stop': 1400},
+        {'id': 'dupINVdup_B', 'start': 1050, 'stop': 1400},
         {'id': 'dDUP_A', 'start': 111, 'stop': 130},
         {'id': 'dDUP_B', 'start': 110, 'stop': 120},
         {'id': 'dDUP_A', 'start': 10, 'stop': 30},
@@ -247,7 +247,7 @@ class TestComplexSV(TestCase):
         csv = ComplexSV(
             sv_type="delINVdel", chrom=1, qual=0.9,
             records=[SVBreakpoint(sv_type=f'delINVdel_A', chr1='chr1', pos1=5, chr2='chr1', pos2=15, qual=1),
-                     SVBreakpoint(sv_type=f'delINVdel_A', chr1='chr1', pos1=6, chr2='chr1', pos2=20, qual=1)],
+                     SVBreakpoint(sv_type=f'delINVdel_B', chr1='chr1', pos1=6, chr2='chr1', pos2=20, qual=1)],
         )
         vcf_info = csv.get_vcf_info()
         self.assertEqual(6, vcf_info['start'] - 1)
@@ -340,11 +340,11 @@ class TestSVTypes(TestCase):
 
     def test_inv(self):
         """
-        INV is a singleton record indicating the inverted region
-        TODO: INVs should be interlocking, but we preprocess them to be singleton edges?
+        INV is an interlocking pair adjacent on both sides
         """
-        deta = [{'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'INV'}]
-        expected_result = [{'start': 5, 'stop': 15, 'sv_type': 'INV', 'sv_len': 10}]
+        deta = [{'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'INV_A'},
+                {'start': 6, 'stop': 16, 'qual': 0.9, 'id': 'INV_B'}]
+        expected_result = [{'start': 6, 'stop': 15, 'sv_type': 'INV', 'sv_len': 9}]
         self.run_pipeline(deta, expected_result)
 
     def test_dup(self):
@@ -361,7 +361,7 @@ class TestSVTypes(TestCase):
         shared start and end with each other edge. The interlocking edges should be off by one.
         """
         data = [{'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'DUP_INV_A'},
-                {'start': 6, 'stop': 16, 'qual': 0.9, 'id': 'DUP_INV_A'},
+                {'start': 6, 'stop': 16, 'qual': 0.9, 'id': 'DUP_INV_C'},
                 {'start': 6, 'stop': 15, 'qual': 0.9, 'id': 'DUP_INV_B'},
                 ]
         expected_result = [{'start': 6, 'stop': 15, 'sv_type': 'DUP_INV', 'sv_len': 9}]
@@ -408,15 +408,15 @@ class TestSVTypes(TestCase):
         """
         dDUP_INV has four record types A, B, C, D with A and B interlocking adjacent and C enveloping D,
         adjacent at the target. B and C share the same start, and A's end and D's start are shared.
-        Symmetric version swaps order (so start/end relationships also swap)
+        Symmetric version flips the CD structure so that the AB structure is on its right.
         """
         data = [
             {'start': 1, 'stop': 50, 'qual': 100, 'id': 'dDUP_INV_A'},
             {'start': 2, 'stop': 51, 'qual': 100, 'id': 'dDUP_INV_B'},
             {'start': 2, 'stop': 100, 'qual': 100, 'id': 'dDUP_INV_C'},
             {'start': 50, 'stop': 99, 'qual': 100, 'id': 'dDUP_INV_D'},
-            {'start': 151, 'stop': 200, 'qual': 100, 'id': 'dDUP_INV_A'},
-            {'start': 150, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_B'},
+            {'start': 151, 'stop': 200, 'qual': 100, 'id': 'dDUP_INV_B'},
+            {'start': 150, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_A'},
             {'start': 101, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_C'},
             {'start': 102, 'stop': 151, 'qual': 100, 'id': 'dDUP_INV_D'},
         ]
@@ -471,8 +471,8 @@ class TestSVTypes(TestCase):
         region is deleted
         """
         data = [
-            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdel_B'},
-            {'start': 2, 'stop': 30, 'qual': 100, 'id': 'INVdel_A'},
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdel_A'},
+            {'start': 2, 'stop': 30, 'qual': 100, 'id': 'INVdel_B'},
         ]
         expected_result = [
             {'start': 2, 'stop': 29, 'sv_type': 'INVdel', 'sv_len': 27},
@@ -572,7 +572,7 @@ class TestSVTypes(TestCase):
         """
         data = [
             {'start': 1, 'stop': 20, 'qual': 100, 'id': 'delINVdel_A'},
-            {'start': 5, 'stop': 25, 'qual': 100, 'id': 'delINVdel_A'},
+            {'start': 5, 'stop': 25, 'qual': 100, 'id': 'delINVdel_B'},
         ]
         expected_result = [
             {'start': 2, 'stop': 24, 'sv_type': 'delINVdel', 'sv_len': 22},
@@ -590,7 +590,7 @@ class TestSVTypes(TestCase):
         """
         data = [
             {'start': 1, 'stop': 20, 'qual': 100, 'id': 'dupINVdup_A'},
-            {'start': 5, 'stop': 25, 'qual': 100, 'id': 'dupINVdup_A'},
+            {'start': 5, 'stop': 25, 'qual': 100, 'id': 'dupINVdup_B'},
         ]
         expected_result = [
             {'start': 1, 'stop': 25, 'sv_type': 'dupINVdup', 'sv_len': 24},

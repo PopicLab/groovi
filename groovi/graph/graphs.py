@@ -45,8 +45,7 @@ class GrooviGraph:
     Additional attributes:
         - candidate_src: Tensor of shape (num_candidate_edges,) indicating source nodes of candidate edges
         - candidate_dst: Tensor of shape (num_candidate_edges,) indicating destination nodes of candidate edges
-        - vcf_path: str, path to the VCF file associated with this graph, optional
-        - info_path: str, path to the info file associated with this graph, intended for graph classification tasks, optional
+        - candidate_support: Tensor of shape (num_candidate_edges,) indicating read support of candidate edges
     """
 
     def __init__(self, config):
@@ -58,8 +57,6 @@ class GrooviGraph:
         self.edges2source = defaultdict(list)
         self.node_to_id = {}
         self.id_to_node = {}
-        self.vcf_path: str = None
-        self.info_path: str = None
 
     def __repr__(self):
         return f"GrooviGraph(num_nodes={self.dgl_graph.num_nodes()}, num_edges={self.dgl_graph.num_edges()})"
@@ -67,9 +64,9 @@ class GrooviGraph:
     def get_stats(self):
         return {'num_nodes': self.dgl_graph.num_nodes(),
                 'num_edges':  self.dgl_graph.num_edges(),
-                'vcf':  self.vcf_path,
                 'candidate_src':  self.candidate_src,
-                'candidate_dst':  self.candidate_dst}
+                'candidate_dst':  self.candidate_dst,
+                'candidate_support':  self.candidate_support}
 
     def add_nodes(self, ref_segments, node_features):
         head_segment_stats, tail_segment_stats = node_features
@@ -125,7 +122,7 @@ class GrooviGraph:
             self.edges2source[(src_node_id, dst_node_id)] = [j.source] # TODO: update after clustering change
         self.candidate_src = torch.tensor(self.candidate_src, dtype=torch.int64)
         self.candidate_dst = torch.tensor(self.candidate_dst, dtype=torch.int64)
-        self.candidate_support = torch.tensor(self.candidate_support, dtype=torch.float64)
+        self.candidate_support = torch.tensor(self.candidate_support, dtype=torch.int64)
 
 
     def add_edge_features(self, split_by_sign=True):
@@ -153,17 +150,15 @@ class GrooviGraph:
                                 data={FEAT_TYPE: torch.full((neg_mask.sum(),), EDGE_FEATURE_TO_ID[EdgeFeature.RD_NEG]),
                                       FEAT: rd_delta[neg_mask].abs()})
 
-    def get_edge_support(self, src_node_id, dst_node_id):
+    def get_edge_types(self, src_node_id, dst_node_id):
         _, _, edge_ids = self.dgl_graph.edge_ids(src_node_id, dst_node_id, return_uv=True)
         if len(edge_ids) == 0: return 0
         edge_type_ids = self.dgl_graph.edata[FEAT_TYPE][edge_ids]
-        total_support = 0
         edge_types = set()
         for i, e_type_id in enumerate(edge_type_ids):
             if ID_TO_EDGE_FEATURE[e_type_id.item()] in CANDIDATE_EDGE_FEATURE_TYPES:
-                total_support += int(self.dgl_graph.edata[FEAT][edge_ids][i].item())
                 edge_types.add(ID_TO_EDGE_FEATURE[e_type_id.item()].name)
-        return total_support, edge_types
+        return edge_types
 
     def add_hint(self):
         for src_node_id, dst_node_id in zip(self.candidate_src, self.candidate_dst):
@@ -187,8 +182,6 @@ class GrooviGraph:
         groovi_graph.add_novel_junction_edges(junctions)
         groovi_graph.add_edge_features()
         groovi_graph.filter_candidate_edges(config.candidate_support_threshold)
-        groovi_graph.vcf_path = config.vcf if hasattr(config, "vcf") else None
-        groovi_graph.info_path = config.info if hasattr(config, "info") else None
         logging.info("Finished graph construction")
         return groovi_graph
 

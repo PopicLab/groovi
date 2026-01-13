@@ -34,6 +34,7 @@ GENERATE_DEFAULTS = {
     'recover_ins': True,
     'recover_clipping': True,
     'recover_subfrag': True,
+    'recover_missing_segs': True,
     'interchrom': False,
     'tiny_segment_threshold': 5,
     'cluster': True,
@@ -126,7 +127,7 @@ class Config:
 class GenerateConfig(Config):
     def __init__(self, config_yaml):
         self.set_defaults(GENERATE_DEFAULTS)
-        self.required_params = ["bam", "vcf", "fa"]
+        self.required_params = ["bam", "fa"]
         super().__init__(config_yaml)
 
         # -------- setup data inputs
@@ -193,7 +194,7 @@ class DiscoverConfig(Config):
 class TrainEdgeConfig(Config):
     def __init__(self, config_yaml):
         self.set_defaults(TRAIN_DEFAULTS)
-        self.required_params = ["graphs"]
+        self.required_params = ["graphs", "graphs_info"]
         super().__init__(config_yaml)
 
         # -------- setup the output directory structure

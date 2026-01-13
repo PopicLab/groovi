@@ -33,6 +33,7 @@ class SVSignalProcessor:
         self.cues_config.run_recovery_ins = config.recover_ins
         self.cues_config.run_recovery_clipping = config.recover_clipping
         self.cues_config.run_recovery_subfrags = config.recover_subfrag
+        self.cues_config.run_recovery_missing_segments = config.recover_missing_segs
         self.cues_config.max_alns_to_process = np.iinfo(np.int32).max
         self.cues_config.record_inter_chromosomal_junctions = config.interchrom
         self.cues_config.n_threads = self.config.n_cpus
