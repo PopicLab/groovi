@@ -29,7 +29,7 @@ def write_bkp_vcf(vcf_fname, sv_bkps, chr_index):
     for ctg in chr_index.contigs(): header.add_line("##contig=<ID=%s>\n" % ctg.name)
     vcf = pysam.VariantFile(vcf_fname, 'w', header=header)
     for sv in sv_bkps:
-        vcf.write(vcf.new_record(contig=sv.chr1, start=sv.pos1, stop=sv.pos2,
+        vcf.write(vcf.new_record(contig=sv.chr1, start=sv.pos1, stop=sv.pos2, # start positions are off by one in vcf
                                  info={"CHR2": sv.chr2, "BKP_TYPE": sv.type,
                                        "SVTYPE": sv.type, "SUPPORT": sv.evidence,
                                        "ORIENTATION": sv.orientation, "SOURCE": sv.source},

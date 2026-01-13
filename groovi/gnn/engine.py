@@ -111,7 +111,6 @@ def evaluate(config, model, graph):
             node_src = graph.id_to_node[u.item()]
             node_dst = graph.id_to_node[v.item()]
             sv_type = config.classes[predicted_class.item()]
-            if sv_type == SVBpType.NEG: continue
             if torch.isnan(prob):
                 logging.warning(f": NaN at {node_src.chr_name}:{node_src.ref_pos}-{node_dst.chr_name}:{node_dst.ref_pos}")
                 qual = 0

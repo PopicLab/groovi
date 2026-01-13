@@ -17,10 +17,16 @@ class EDGE_LENGTHS(Enum):
     MEDIUM = NODE_SIZE*6
     LONG = NODE_SIZE*8
 
-EDGE_COLOR_MAPCOLORS = {i: color for i, color in enumerate(['mediumpurple', 'pink', 'lightgreen', 'darkseagreen', 'lightblue', 'lightgray', 'yellow', 'pink',
-                                                            "blue", "red"])}
+EDGE_COLOR_MAPCOLORS = {i: color for i, color in enumerate(['mediumpurple', 'pink', 'lightgreen', 'darkseagreen', 'lightblue', 'lightgray', 'yellow', 'pink', "blue", "red"])}
 
-def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candidate_dst = None, algorithm_labels = None, predicted_labels = None, stagger_edges = False) -> None:
+def visualize_groovi_graph(g: GrooviGraph, path: str, candidate_src= None, candidate_dst=None, expected_labels=None, predicted_labels=None):
+    vis_format = path.split('.')[-1]
+    if vis_format in ['html']:
+        visualize_groovi_graph_pyvis(g, path, candidate_src, candidate_dst, expected_labels, predicted_labels)
+    else:
+        raise ValueError(f'{vis_format} not supported')
+    
+def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None, candidate_dst = None, expected_labels = None, predicted_labels = None, stagger_edges = False) -> None:
     '''
     Draws a genome graph, made to look linear. Turn stagger_edges on to add randomness for debugging purposes.
     Inputs:
@@ -52,7 +58,7 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candi
         
         node: GrooviNode = g.id_to_node[node_id]
         position = node.ref_pos
-            
+
         position_str = f'Position: ({position})'
         node_id_str = f'Node ID: ({node_id})'
         chr_name_str = f'Chr: {node.chr_name}'
@@ -73,13 +79,15 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candi
         edata = g.dgl_graph.edata
         edge_type = edata[FEAT_TYPE][edge_id].item()
         edge_feature = edata[FEAT][edge_id].item()
-        # distance = g.edata['distance'][edge_id].item()
+        src_node: GrooviNode = g.id_to_node[u.item()]
+        dst_node: GrooviNode = g.id_to_node[v.item()]
+        distance = abs(dst_node.ref_pos-src_node.ref_pos)
 
         edge_type_str = f'Type: {edge_feature_list[edge_type].value}'
         edge_feature_str = f'Evidence: {edge_feature:.2f}'
-        # distance_str = f'Distance: {distance}'
+        distance_str = f'Distance: {distance}'
 
-        display_label = "\n".join([edge_type_str, edge_feature_str])
+        display_label = "\n".join([edge_type_str, edge_feature_str, distance_str])
 
         color = EDGE_COLOR_MAPCOLORS[edge_type]
 
@@ -98,16 +106,58 @@ def visualize_groovi_graph(g: GrooviGraph, path:str, candidate_src = None, candi
             length = EDGE_LENGTHS.LONG.value + get_stagger()
         net.add_edge(u.item(), v.item(), color=color, label=display_label, title=display_label, length=length, smooth=smooth, width=EDGE_WIDTH, arrowsize=ARROWSIZE)
 
-    if algorithm_labels is not None:
-        for u, v, algo_label in zip(candidate_src, candidate_dst, algorithm_labels):
-            display_label = "\n".join([
-                f'Label: {algo_label}',
-                # f'Predicted: {pred_label}', todo
-            ])
+    if candidate_src is not None:
+        for i, (u, v) in enumerate(zip(candidate_src, candidate_dst)):
+            display_label = []
+            if expected_labels is not None: display_label.append(f'Expected: {expected_labels[i]}')
+            if predicted_labels is not None: display_label.append(f'Predicted: {predicted_labels[i]}')
+            display_label = '\n'.join(display_label)
             color = 'orange'
             length = EDGE_LENGTHS.MEDIUM.value + get_stagger()
             net.add_edge(u.item(), v.item(), color=color, label=display_label, length=EDGE_LENGTHS.MEDIUM.value, smooth={'type': 'curvedCW', 'roundness': 0.7 + get_stagger()*0.2}, width=EDGE_WIDTH, arrowsize=ARROWSIZE)
         
     net.toggle_physics(True)
     net.set_edge_smooth('dynamic')
-    net.show(path)
+
+    # search feature
+    search_injection = """
+        <div style="position: absolute; top: 15px; left: 10px; z-index: 9;">
+            <input type="text" id="search-bar" placeholder="Search by node id or position (press enter)"
+                style="padding: 6px; border-radius: 4px; border: 1px solid black; width: 300px;">
+            <div id="search-info" style="margin-top: 4px; background: white;"></div>
+        </div>
+        <script>
+            let search_idx = 0;
+            const search_bar_obj = document.getElementById('search-bar');
+            const search_bar_info = document.getElementById('search-info');
+
+            search_bar_obj.addEventListener('input', event => {
+                search_idx = 0;
+            })
+
+            search_bar_obj.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    query = event.target.value;
+                    const matches = network.body.data.nodes.get().filter(node => node.label.indexOf(query) !== -1)
+
+                    if (matches.length > 0) {
+                        let node = matches[search_idx % matches.length];
+                        network.selectNodes([node.id]);
+                        network.focus(node.id, { scale: .5, animation: false });
+                        search_bar_info.innerHTML = `Showing result ${(search_idx % matches.length) + 1} of ${matches.length} for "${query}"`;
+                        search_idx += 1;
+                    } else {
+                        search_bar_info.innerHTML = `No results found for "${query}"`;
+                    }
+                }
+            })
+        </script>
+    """
+
+    # Generate HTML, save to file
+    html_content = net.generate_html()
+    final_html = html_content.replace('</body>', search_injection + '</body>')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(final_html)
+
+    
