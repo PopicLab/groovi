@@ -25,7 +25,7 @@ def main(config_yaml):
         classified_sv_bkps = evaluate(config, model, graph)
         
         # ------ 3. Visualization ------
-        visualize_groovi_graph(graph, os.path.join(config.img_dir, "graph.html"), graph.candidate_src, graph.candidate_dst, expected_labels=None, predicted_labels=[svbkp.type for svbkp in classified_sv_bkps])
+        if config.visualize_graphs: visualize_groovi_graph(graph, os.path.join(config.img_dir, "graph_annotated.html"), graph.candidate_src, graph.candidate_dst, expected_labels=None, predicted_labels=[svbkp.type for svbkp in classified_sv_bkps])
 
         # ----- 4. Filter Neg, Write classified breakpoints to VCF ------
         classified_sv_bkps = [sv for sv in classified_sv_bkps if sv.type != SVBpType.NEG]
