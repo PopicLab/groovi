@@ -122,12 +122,14 @@ def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None,
     # search feature
     search_injection = """
         <div style="position: absolute; top: 15px; left: 10px; z-index: 9;">
-            <input type="text" id="search-bar" placeholder="Search by node id or position (press enter)" style="padding: 6px; border-radius: 4px; border: 1px solid black; width: 300px;">
+            <input type="text" id="search-bar" placeholder="Search by node id or position (press enter)"
+                style="padding: 6px; border-radius: 4px; border: 1px solid black; width: 300px;">
             <div id="search-info" style="margin-top: 4px; background: white;"></div>
         </div>
         <script>
             let search_idx = 0;
             const search_bar_obj = document.getElementById('search-bar');
+            const search_bar_info = document.getElementById('search-info');
 
             search_bar_obj.addEventListener('input', event => {
                 search_idx = 0;
@@ -137,16 +139,15 @@ def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None,
                 if (event.key === 'Enter') {
                     query = event.target.value;
                     const matches = network.body.data.nodes.get().filter(node => node.label.indexOf(query) !== -1)
-                    const status = document.getElementById('search-info');
 
-                    if (matches.length > 0){
+                    if (matches.length > 0) {
                         let node = matches[search_idx % matches.length];
                         network.selectNodes([node.id]);
-                        network.focus(node.id, {scale: .5, animation: false});
-                        status.innerHTML = `Showing result ${ (search_idx % matches.length) + 1 } of ${ matches.length } for "${ query }"`;
+                        network.focus(node.id, { scale: .5, animation: false });
+                        search_bar_info.innerHTML = `Showing result ${(search_idx % matches.length) + 1} of ${matches.length} for "${query}"`;
                         search_idx += 1;
                     } else {
-                        status.innerHTML = `No results found for "${ query }"`;
+                        search_bar_info.innerHTML = `No results found for "${query}"`;
                     }
                 }
             })
