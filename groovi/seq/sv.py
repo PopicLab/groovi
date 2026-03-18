@@ -5,6 +5,7 @@ from scipy.spatial import KDTree
 from intervaltree import IntervalTree
 from typing import Union
 from collections import defaultdict
+from dataclasses import dataclass
 import logging
 from pycues import *
 
@@ -192,3 +193,15 @@ class SVDB:
             if orientation is not None and sv_match.orientation != orientation: continue
             return sv_match.type, dist
         return SVBpType.NEG, None
+
+
+@dataclass
+class Fragment:
+    chrom: str
+    start: int
+    end: int
+    operation: str
+    target_chrom: str=None
+    target_start: int=None
+    target_end: int=None
+

@@ -7,29 +7,38 @@ import argparse
 import math
 
 from groovi.cli.config import DiscoverConfig
-from groovi.seq.sv import SVBreakpoint
+from groovi.seq.sv import SVBreakpoint, Fragment
 import groovi.seq.io as io
 import logging
 
 from typing import Callable, Any, List, Tuple, Dict, Iterable
 import warnings
 
-from groovi.seq.stitch_rules import SV_REGISTRY
+from groovi.seq.stitch_rules import SV_REGISTRY, dispersion_source_target
 
 
 class ComplexSV:
-    def __init__(self, sv_type, chrom, qual=None, singleton_interval=None, records: List[SVBreakpoint] = None):
+    def __init__(self, sv_type, chrom, qual=None, records: List[SVBreakpoint] = None):
         self.sv_type = sv_type
         self.chrom = chrom
         self.qual = qual
-        self.singleton_interval = singleton_interval
-        self.records = records  # intervals is a list of VariantRecords
-        self.first_interval = None
-        self.second_interval = None
-        if not singleton_interval:
-            self._set_key_intervals()
-        self.occupied_intervals = None
-        self.set_occupied_intervals()
+        self.records = records
+
+        sv_registry_info = SV_REGISTRY[sv_type]
+
+        # dispersion logic
+        if sv_registry_info.get('dispersion', False):
+            self.source_start, self.source_end, self.target, self.target_chrom = dispersion_source_target(self)
+            self.grammar = sv_registry_info['grammar'][0] if self.target < self.source_start else \
+                sv_registry_info['grammar'][1]
+            # For dispersions where the grammar can change based on direction of dispersion,
+            # we store the left and right grammars as a pair
+        else:
+            self.source_start, self.source_end, self.target, self.target_chrom = None, None, None, None
+            self.grammar = sv_registry_info['grammar']
+
+        self.fragments = sv_registry_info['fragment_fn'](self)
+
 
     def __str__(self):
         return repr((self.sv_type, self.chrom, self.qual, self.records))
@@ -39,9 +48,8 @@ class ComplexSV:
         sv_type = re.sub("_\w$", "", recs[0].type)
         chrom = recs[0].chr1
         qual = round(sum([rec.qual for rec in recs]) / len(recs))
-        singleton_interval = (recs[0].pos1, recs[0].pos2) if len(recs) == 1 else None
 
-        return ComplexSV(sv_type, chrom, qual, singleton_interval, recs)
+        return ComplexSV(sv_type, chrom, qual, recs)
 
     @staticmethod
     def check_equality(csv1, csv2):
@@ -49,151 +57,45 @@ class ComplexSV:
             csv1.sv_type == csv2.sv_type,
             csv1.chrom == csv2.chrom,
             csv1.qual == csv2.qual,
-            csv1.singleton_interval == csv2.singleton_interval,
             csv1.records == csv2.records,
-            csv1.occupied_intervals == csv2.occupied_intervals
+            csv1.fragments == csv2.fragments
         ])
 
-    def _set_key_intervals(self):
-        """
-        For backward compatibility: set a_interval, b_interval. For SV types with multiple intervals, we use
-        _set_key_intervals() to choose which two are most helpful for subsequent computation.
-
-        The heuristic for choosing the key intervals is we take the earliest position a record and the latest b record.
-        """
-        a_key, b_key = SV_REGISTRY[self.sv_type].get('key_records', (self.sv_type + '_A', self.sv_type + '_B'))
-        a_intervals = [rec for rec in self.records if rec.type == a_key]
-
-        b_intervals = [rec for rec in self.records if rec.type == b_key]
-
-        if a_intervals and b_intervals:
-            a_record = sorted(a_intervals, key=lambda x: x.pos1)[0]
-            b_record = sorted(b_intervals, key=lambda x: x.pos2, reverse=True)[0]
-
-            self.first_interval = (a_record.pos1, a_record.pos2)
-            self.second_interval = (b_record.pos1, b_record.pos2)
-
-    def get_dispersion_src_trg(self):
-        """
-        Helper fn to get source interval and target locus of dispersion SV
-        Uses the stored ab intervals, so the 'key_intervals' parameter should be set in the SV definition
-        to enable correct logic here.
-
-        :return: (source start), (source stop), (target start) locations in original genome
-        """
-
-        # look for two endpoints that are close together (off by exactly one if exact). The earlier is the target
-        start_dist = abs(self.first_interval[0] - self.second_interval[0])
-        stop_dist = abs(self.first_interval[1] - self.second_interval[1])
-
-        if start_dist < stop_dist:
-            source_start, source_stop = sorted([self.first_interval[1], self.second_interval[1]])
-            target = min(self.first_interval[0], self.second_interval[0])
-        else:
-            source_start, source_stop = sorted([self.first_interval[0], self.second_interval[0]])
-            target = min(self.first_interval[1], self.second_interval[1])
-
-        return source_start, source_stop, target
-
-    def set_occupied_intervals(self, buffer=0):
-        """
-        Get occupied intervals from matched _A/_B records for filtering overlapping records by quality
-        """
-        if self.singleton_interval:
-            self.occupied_intervals = [
-                (max(self.singleton_interval[0] - buffer, 0), self.singleton_interval[1] + buffer)]
-        else:  # <- A/B recs given
-            if SV_REGISTRY[self.sv_type].get('dispersion', False):
-                # trg: the end of A that's shared with B
-                # src_start: the end of A that != trg
-                # src_end: the end of B that != trg
-                src_start, src_stop, trg = self.get_dispersion_src_trg()
-                self.occupied_intervals = [(max(src_start - buffer, 0), src_stop + buffer),
-                                           (max(trg - buffer, 0), trg + 1 + buffer)]
-            else:
-                # No dispersion, so capture the full range of stored intervals
-                self.occupied_intervals = [(max(min([rec.pos1 for rec in self.records]) - buffer, 0),
-                                            max([rec.pos2 for rec in self.records]) + buffer)]
-
     def get_bed_info(self):
-        # get the bed record(s) information representing the sv
+        # get the bed record(s) information representing the sv. DEPRECATED
         bed_recs = []
-        # if singleton_interval, there will be one record
-        if self.singleton_interval:
+
+        # add the frag-specific records
+        for frag in self.fragments:
             bed_recs.append({
-                'chrom': self.chrom, 'source_s': self.singleton_interval[0], 'source_e': self.singleton_interval[1],
-                'target_s': self.singleton_interval[0], 'target_e': self.singleton_interval[1],
-                'transform': SV_REGISTRY[self.sv_type].get('op_name', self.sv_type),
-                'sv_len': self.singleton_interval[1] - self.singleton_interval[0], 'gt': './.',
+                'chrom': frag.chrom, 'source_s': frag.start, 'source_e': frag.end,
+                'target_s': frag.target_start, 'target_e': frag.target_end,
+                'transform': frag.operation, 'sv_len': frag.end - frag.start, 'gt': './.',
                 'sv_type': self.sv_type
             })
-        else:
-            # for two-interval SVs need to extract the fragments (with logic specific to different types)
-            # -> dispersion SV are given by one bed rec, flanked inversions by multiple
-            if SV_REGISTRY[self.sv_type].get('dispersion', False):
-                src_start, src_stop, trg = self.get_dispersion_src_trg()
-                bed_recs.append({
-                    'chrom': self.chrom, 'source_s': src_start, 'source_e': src_stop, 'target_s': trg, 'target_e': trg,
-                    'transform': SV_REGISTRY[self.sv_type].get('op_name', self.sv_type), 'sv_len': src_stop - src_start, 'gt': './.',
-                    'sv_type': self.sv_type
-                })
-            else:
-                frag_intervals = []
-
-                fragment_fn = SV_REGISTRY[self.sv_type].get('fragment_fn', None)
-
-                if fragment_fn:
-                    frag_intervals.extend(fragment_fn(self))
-
-                # add the frag-specific records
-                for frag_start, frag_stop, target_start, target_stop, frag_type in frag_intervals:
-                    if target_start == -1:
-                        target_start = frag_start
-                        target_stop = frag_stop
-                    bed_recs.append({
-                        'chrom': self.chrom, 'source_s': frag_start, 'source_e': frag_stop,
-                        'target_s': target_start, 'target_e': target_stop,
-                        'transform': frag_type, 'sv_len': frag_stop - frag_start, 'gt': './.',
-                        'sv_type': self.sv_type
-                    })
         return bed_recs
 
     def get_vcf_info(self):
         """
-        Creates a VCF record for the SV. Converts zero-indexed locations to 1-indexed
+        Creates a single VCF record for the SV.
         """
-        if self.singleton_interval:
-            return {'chrom': self.chrom,
-                    'start': self.singleton_interval[0] + 1,
-                    'stop': self.singleton_interval[1] + 1,
-                    'sv_type': self.sv_type, 'qual': self.qual,
-                    'sv_len': self.singleton_interval[1] - self.singleton_interval[0],
+        start, stop = None, None
+        start_stop_fn = SV_REGISTRY[self.sv_type].get('start_stop_fn', None)
+        if start_stop_fn:
+            start, stop = start_stop_fn(self)
+
+        vcf_info = {'chrom': self.chrom,
+                    'start': start,
+                    'stop': stop,
+                    'sv_type': self.sv_type,
+                    'qual': self.qual,
+                    'sv_len': stop - start,
                     'gt': (0, 0), 'op_type': SV_REGISTRY[self.sv_type].get('op_name', self.sv_type)}
-        else:
-            if SV_REGISTRY[self.sv_type].get('dispersion', False):
-                src_start, src_stop, trg = self.get_dispersion_src_trg()
-                return {'chrom': self.chrom,
-                        'start': src_start + 1,
-                        'stop': src_stop + 1,
-                        'sv_type': self.sv_type,
-                        'qual': self.qual,
-                        'sv_len': src_stop - src_start,
-                        'target': trg + 1,
-                        'gt': (0, 0), 'op_type': SV_REGISTRY[self.sv_type].get('op_name', self.sv_type)}
-            else:
-                start, stop = None, None
-                start_stop_fn = SV_REGISTRY[self.sv_type].get('start_stop_fn', None)
-                if start_stop_fn:
-                    start, stop = start_stop_fn(self)
 
-                return {'chrom': self.chrom,
-                        'start': start + 1,
-                        'stop': stop + 1,
-                        'sv_type': self.sv_type,
-                        'qual': self.qual,
-                        'sv_len': stop - start,
-                        'gt': (0, 0), 'op_type': SV_REGISTRY[self.sv_type].get('op_name', self.sv_type)}
+        if self.target:
+            vcf_info['target'] = self.target
 
+        return vcf_info
 
 def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
     """
@@ -208,7 +110,7 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
 
     observed_types = set()
 
-    trees = {}
+    trees = defaultdict(IntervalTree)
     for rec in recs:
         # Assumes a naming convention with SV type followed by underscore identifier, e.g., 'dDUP_A'
         sv_type_key = re.sub("_\w$", "", rec.type)
@@ -219,8 +121,6 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
         observed_types.add(sv_type_key)
 
         rec_type = rec.type
-        if rec_type not in trees:
-            trees[rec_type] = IntervalTree()
 
         # Storing the original record in the interval data as a list
         trees[rec_type].add(Interval(rec.pos1, rec.pos2, rec))
@@ -233,7 +133,14 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
 
         print(f"Finding matches for {sv_type}")
 
-        candidates = [trees.get(rec_type, IntervalTree()) for rec_type in sv_info.get('candidates', [])]
+        candidates = []
+        for rec_type in sv_info.get('candidates', []):
+            if isinstance(rec_type, str):
+                candidates.append(trees[rec_type])
+            elif isinstance(rec_type, tuple):
+                candidate_trees = [trees[subtype] for subtype in rec_type]
+                candidates.append(IntervalTree(interval for tree in candidate_trees for interval in tree))
+
         match_fn = sv_info.get('match_fn', None)
         if not candidates:
             continue
@@ -252,15 +159,18 @@ def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=F
     filtered_recs = []
 
     if prioritize_evidence:
-        key_func = lambda csv: -sum([rec.evidence for rec in csv.records]) / len(csv.records)
+        key_func = lambda csv: -sum([rec.evidence if rec.evidence else 0 for rec in csv.records]) / len(csv.records)
     else:
         key_func = lambda csv: -csv.qual
 
     for rec in sorted(merged_recs, key=key_func):
+        occupied_intervals = [(frag.start, frag.end + 1) for frag in rec.fragments]
+        occupied_intervals += [(frag.target_start, frag.target_end) for frag in rec.fragments if frag.target_start]
+
         if rec.chrom not in chrom_intervals or \
-                not any(chrom_intervals[rec.chrom].overlap(*occupied_interval) for occupied_interval in rec.occupied_intervals):
-            for occupied_interval in rec.occupied_intervals:
-                chrom_intervals[rec.chrom].addi(*occupied_interval)
+                not any(chrom_intervals[rec.chrom].overlap(*occupied_interval) for occupied_interval in occupied_intervals):
+            for occupied_interval in occupied_intervals:
+                chrom_intervals[rec.chrom].addi(*sorted(occupied_interval))
             filtered_recs.append(rec)
         else:
             continue
@@ -291,40 +201,22 @@ def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=Fal
     vcf_out_file = VariantFile(output_path, 'w', header=header)
     for parent_id, rec in enumerate(filtered_recs):
         vcf_info_dict = rec.get_vcf_info()
-        frag_info_dicts = rec.get_bed_info()
-        grammar = SV_REGISTRY[vcf_info_dict['sv_type']]['grammar']
-        if SV_REGISTRY[vcf_info_dict['sv_type']].get("dispersion", False):
-            # Single-record dispersion. Should have no extra fragments
-            assert len(frag_info_dicts) == 1
-            info_field = {'SVTYPE': vcf_info_dict['sv_type'], 'SVLEN': vcf_info_dict['sv_len'],
-                          'GRAMMAR': grammar, 'SVID': f"sv{parent_id}", 'OP_TYPE': vcf_info_dict['op_type'],
-                          'TARGET': vcf_info_dict['target'], 'TARGET_CHROM': vcf_info_dict['chrom'],}
-            # TODO: Add interchromosomal target support. Currently assumes same chromosome
-            vcf_record = vcf_out_file.header.new_record(contig=vcf_info_dict['chrom'],
-                                                        start=vcf_info_dict['start'],
-                                                        stop=vcf_info_dict['stop'],
-                                                        alleles=['N', '<%s>' % vcf_info_dict['sv_type']],
-                                                        id=info_field['SVID'],
-                                                        info=info_field,
-                                                        qual=vcf_info_dict['qual'], filter='PASS',
-                                                        samples=[{'GT': vcf_info_dict['gt']}])
-            vcf_out_file.write(vcf_record)
-
-        elif SV_REGISTRY[vcf_info_dict['sv_type']].get("fragment_fn", None) and sep_frag_recs:
+        grammar = rec.grammar
+        if sep_frag_recs:
             # Multi-record SV broken into fragments
-            assert len(frag_info_dicts) > 1
-            for frag_id, frag in enumerate(frag_info_dicts):
+            for frag_id, frag in enumerate(rec.fragments):
                 # Reorder fragment start and end if tolerance allowed stitching of misaligned edges
-                frag_start, frag_end = sorted([frag['source_s'], frag['source_e']])
-                info_field = {'OP_TYPE': frag['transform'], 'SVLEN': frag_end - frag_start,
+                frag_start, frag_end = sorted([frag.start, frag.end])
+                info_field = {'OP_TYPE': frag.operation, 'SVLEN': frag_end - frag_start,
                               'GRAMMAR': grammar, 'SVID': f"sv{parent_id}",
-                              'SVTYPE': vcf_info_dict['sv_type'], 'TARGET': frag['target_s'] + 1, 'TARGET_CHROM': frag['chrom']}
-                if frag['target_e'] == frag['source_e']:
-                    del info_field['TARGET'], info_field['TARGET_CHROM']
-                vcf_record = vcf_out_file.header.new_record(contig=vcf_info_dict['chrom'],
-                                                            start=frag_start + 1,
-                                                            stop=frag_end + 1,
-                                                            alleles=['N', '<%s>' % frag['transform']],
+                              'SVTYPE': vcf_info_dict['sv_type']}
+                if frag.target_start:
+                    info_field.update({'TARGET': frag.target_start, 'TARGET_CHROM': frag.target_chrom})
+
+                vcf_record = vcf_out_file.header.new_record(contig=frag.chrom,
+                                                            start=frag_start,
+                                                            stop=frag_end,
+                                                            alleles=['N', '<%s>' % frag.operation],
                                                             id=f"sv{parent_id}_{frag_id}",
                                                             info=info_field,
                                                             qual=vcf_info_dict['qual'], filter='PASS',
@@ -336,7 +228,7 @@ def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=Fal
                           'GRAMMAR': grammar, 'SVID': f"sv{parent_id}", 'OP_TYPE': vcf_info_dict['op_type'],}
             if SV_REGISTRY[vcf_info_dict['sv_type']].get("fragment_fn", None):
                 info_field['FRAGMENT_INTERVALS'] = ','.join(
-                    ['%s_%s-%s' % (frag['transform'], frag['source_s'], frag['source_e']) for frag in frag_info_dicts])
+                    [f'{frag.operation}: {frag.start}-{frag.end} ({frag.target_start}-{frag.target_end})' for frag in rec.fragments])
             if 'target' in vcf_info_dict:
                 info_field['TARGET'] = vcf_info_dict['target']
                 info_field['TARGET_CHROM'] = vcf_info_dict['chrom']
@@ -413,18 +305,6 @@ def generate_merged_callset(input_recs: List[SVBreakpoint], config: DiscoverConf
 
     input_recs = [rec for rec in input_recs if rec.type != 'NEG']
 
-    filtered_input_recs = []
-    small_records = 0
-    for rec in input_recs:
-        if rec.len < config.minimum_length:
-            small_records += 1
-        else:
-            filtered_input_recs.append(rec)
-
-    logging.info(f'Found {small_records} records less than minimum length {config.minimum_length}. {len(input_recs)} records remain.')
-
-    input_recs = filtered_input_recs
-
     if config.gap_file:
         exclude_list = load_exclude_list(config.gap_file)
 
@@ -457,12 +337,15 @@ def generate_merged_callset(input_recs: List[SVBreakpoint], config: DiscoverConf
 
     filtered_recs = []
     for csv in merged_recs:
-        bed_recs = csv.get_bed_info()
-        if all([bed['sv_len'] > config.minimum_length for bed in bed_recs]):
+        sv_lengths = [frag.end - frag.start for frag in csv.fragments]
+        total_length = sum(sv_lengths)
+
+        if total_length >= config.minimum_length:
             filtered_recs.append(csv)
         else:
             stitched_small_recs += 1
-    logging.info(f'Removed {stitched_small_recs} stitched SVs with fragments below minimum length {config.minimum_length}.')
+
+    logging.info(f'Removed {stitched_small_recs} stitched SVs with total length below minimum {config.minimum_length}.')
 
     logging.info(f'Found {len(merged_recs)} stitched SVs')
 
