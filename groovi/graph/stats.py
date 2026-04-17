@@ -49,7 +49,7 @@ class DatasetStats:
                 if profile not in profiles[match]: profiles[match][profile] = 0
                 profiles[match][profile] += 1
 
-        with open(os.path.join(self.config.stats_dir, f"{tag}_profiles.txt"), "w") as f:
+        with open(os.path.join(self.config.stats_dir, f"edge_profiles_{tag}.txt"), "w") as f:
             summary = []
             for class_type in profiles:
                 summary.append(f"{class_type}")
@@ -106,7 +106,7 @@ class DatasetStats:
             for class_match in sv_class_matches:
                 stats[class_match] = stats.get(class_match, 0) + 1
         
-        sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
+        sorted_stats = sorted(stats.items(), key=lambda item: item[0], reverse=True)
         classes, frequencies = zip(*sorted_stats)
         
         with plt.style.context(self.style_overrides):
@@ -119,7 +119,6 @@ class DatasetStats:
             plt.xticks(rotation=45, ha='right')
             plt.tight_layout()
 
-            # Ensure the image directory exists
             plot_path = os.path.join(self.config.stats_dir, f"edge_class_frequencies_{tag}.png")
             plt.savefig(plot_path)
             plt.close(fig)
@@ -140,7 +139,7 @@ class DatasetStats:
             self.plot_edge_class_distribution(graphs, all_sv_class_matches, tag)
             self.write_edge_profiles(graphs, all_sv_class_matches, tag)
         
-        # label summary 
+        # label summary, if provided
         if label_summaries:
             self.write_label_summaries(label_summaries, tag)
             
