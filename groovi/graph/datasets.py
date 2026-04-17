@@ -33,15 +33,18 @@ class StreamingGraphDataset(IterableDataset):
 
 
 class StaticDataset(Dataset):
-    def __init__(self, config, is_validation=False):
+    def __init__(self, config, graph_paths: list[str], graphs_info: list[str], tag: str ):
         super().__init__()
         self.config = config
         self.graphs: list[GrooviGraph] = []
-        self.annotations: list[String] = config.graphs_info if not is_validation else config.graphs_info_validation
+        self.graph_paths = graph_paths
+        self.annotations: list[str] = graphs_info
         self.labels = []
-        self.transforms = T.Compose(config.transforms)
+        self.transforms = T.Compose(self.config.transforms)
+        self.dataset_tag = tag
+
         logging.info(f"Graph loading/transform...")
-        for path in tqdm(config.graphs) if not is_validation else tqdm(config.graphs_validation):
+        for path in tqdm(self.graph_paths):
             g = self.load(path)
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
@@ -55,8 +58,8 @@ class StaticDataset(Dataset):
         return len(self.graphs)
 
 class StaticEdgeDataset(StaticDataset):
-    def __init__(self, config, is_validation=False):
-        super().__init__(config, is_validation)
+    def __init__(self, config, graph_paths: list[str], graphs_info: list[str], tag: str):
+        super().__init__(config, graph_paths, graphs_info, tag)
         # perform edge labeling
         label_summary = []
         logging.info(f"Graph labeling...")
