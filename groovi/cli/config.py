@@ -137,6 +137,7 @@ class GenerateConfig(Config):
         # -------- setup the output directory structure
         self.graph_dir = os.path.join(self.experiment_dir, "graphs")
         self.img_dir = os.path.join(self.experiment_dir, "vis")
+        self.stats_dir = os.path.join(self.experiment_dir, "stats")
         Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
         Path(self.img_dir).mkdir(parents=True, exist_ok=True)
         self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
