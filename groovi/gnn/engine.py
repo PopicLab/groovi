@@ -57,8 +57,9 @@ class MetricTracker:
         for text in cm.text_.ravel(): text.set_fontsize(6)
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
-        plt.savefig(os.path.join(self.config.log_dir, f'confusion_matrix_epoch{epoch}.png'))
-
+        plt.savefig(os.path.join(self.config.log_dir, f'confusion_matrix_{self.val_tags[val_idx]}_epoch{epoch}.png'))
+        plt.close()
+        
 ######################
 # Edge Classification
 ######################
