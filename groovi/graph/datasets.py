@@ -28,7 +28,21 @@ class StreamingGraphDataset(IterableDataset):
         graph = GrooviGraph.build(self.config)
         if self.config.visualize_graphs:
             visualize_groovi_graph(graph, os.path.join(self.config.img_dir, 'graph.html'))
-        if self.config.save_graphs: self.save(graph)
+        if self.config.use_cached_graphs:
+            graph_file_path = os.path.join(self.config.graph_dir, f"graph_full.pkl")
+            with open(graph_file_path, 'rb') as graph_file: graph = pickle.load(graph_file)
+        else:
+            graph = GrooviGraph.build(self.config)
+            graph.apply_transforms(self.transforms)
+            if self.config.visualize_graphs:
+                visualize_groovi_graph(graph, os.path.join(self.config.img_dir, 'graph_raw.html'))
+
+            sv_matches, label_summaries = None, None
+            if self.config.annotations:
+                sv_matches, label_summaries = StreamingGraphDataset.label_graph_breakpoints([graph], [self.config.annotations])
+            self.dataset_stats.write_stats([graph], tag="raw", all_sv_class_matches=sv_matches, label_summaries=label_summaries)
+
+            if self.config.save_graphs: self.save(graph)
         yield graph
 
 

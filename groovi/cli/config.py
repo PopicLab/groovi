@@ -84,7 +84,10 @@ STITCHING_DEFAULTS = {
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
 TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **TRAIN_ENGINE_DEFAULTS}
 DISCOVER_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **GENERATE_DEFAULTS, **STITCHING_DEFAULTS}
-DISCOVER_DEFAULTS.update({'save_graphs': False})
+DISCOVER_DEFAULTS.update({
+    'save_graphs': False,
+    'use_cached_graphs': False,
+})
 
 class Config:
     def __init__(self, config_yaml):
