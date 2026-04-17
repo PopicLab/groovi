@@ -93,7 +93,7 @@ class StaticEdgeDataset(StaticDataset):
             all_sv_class_matches.append(sv_class_matches)
 
             if config.graph_visualization_interval > 0 and i % config.graph_visualization_interval == 0:
-                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{i}.html'),
+                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{self.dataset_tag}_{i}.html'),
                                        graph.candidate_src, graph.candidate_dst, sv_class_matches)
 
         logging.info("writing stats")
