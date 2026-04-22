@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 from sklearn.metrics import *
 import torch
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 
 ###########################
 # Training Utilities
@@ -12,45 +12,32 @@ from torch.utils.tensorboard import SummaryWriter
 class MetricTracker:
     def __init__(self, config):
         self.config = config
-        self.val_tags = sorted(config.graphs_validation.keys())
+        self.train_tag = "Train"
+        self.val_tags = [f'Validation_{tag}' for tag in sorted(config.graphs_validation.keys())]
+        self.train_writer = SummaryWriter(log_dir=os.path.join(config.tensorboard_dir, self.train_tag))
+        self.val_writers = [SummaryWriter(log_dir=os.path.join(config.tensorboard_dir, tag)) for tag in self.val_tags]
 
-        self.train_writer = SummaryWriter(log_dir=os.path.join(config.tensorboard_dir, "Train"))
-        self.val_writers = [SummaryWriter(log_dir=os.path.join(config.tensorboard_dir, f'Validation_{tag}')) for tag in self.val_tags]
-
-    def log_prf1_by_class(self, epoch, metrics, val_idx=None):
-        logging.info(f'======= {epoch}  | Precision | Recall | F1 ')
+    def log_prf1_by_class(self, epoch, metrics, writer, tag):
         precision = metrics["Precision-by-class"]
         recall = metrics["Recall-by-class"]
         f1 = metrics["F1-by-class"]
-
-        # if val_idx is none, write to training
-        writer = self.val_writers[val_idx] if val_idx is not None else self.train_writer
         for i, class_name in enumerate(self.config.classes):
-            logging.info(f'======= {class_name}  | {precision[i]:.4f} | {recall[i]:.4f} | {f1[i]:.4f} ')
-            writer.add_scalar(f"Validation | {class_name} | Precision", precision[i], epoch)
-            writer.add_scalar(f"Validation | {class_name} | Recall", recall[i], epoch)
-            writer.add_scalar(f"Validation | {class_name} | F1", f1[i], epoch)
+            logging.info(f'[{epoch}][{tag}] {class_name}  | {precision[i]:.4f} | {recall[i]:.4f} | {f1[i]:.4f} ')
+            for m, v in zip(["Precision", "Recall", "F1"], [precision[i], recall[i], f1[i]]):
+                writer.add_scalar(f"{tag}_{class_name}_{m}", v, epoch)
 
     def log_train_loss(self, epoch, training_loss, metrics):
         logging.info(f'======= Train    | Epoch {epoch} | {training_loss:.4f}')
-        self.train_writer.add_scalar("Train | AvgLoss", training_loss, epoch)
-        self.log_prf1_by_class(epoch, metrics, val_idx=None)
+        self.train_writer.add_scalar("Train_AvgLoss", training_loss, epoch)
+        self.log_prf1_by_class(epoch, metrics, self.train_writer, self.train_tag)
 
     def log_validation_metrics(self, epoch, validation_loss, metrics, val_idx):
-        logging.info(f"******* Validate | Epoch {epoch} | {validation_loss:.4f}")
-        
+        logging.info(f"******* {self.val_tags[val_idx]} | Epoch {epoch} | {validation_loss:.4f}")
         val_writer = self.val_writers[val_idx]
-        precision = metrics["Precision"]
-        recall = metrics["Recall"]
-        f1 = metrics["F1"]
-
-        val_writer.add_scalar(f"Validation | Precision", precision, epoch)
-        val_writer.add_scalar(f"Validation | Recall", recall, epoch)
-        val_writer.add_scalar(f"Validation | F1", f1, epoch)
-        val_writer.add_scalar(f"Validation | AvgLoss", validation_loss, epoch)
-
-        self.log_prf1_by_class(epoch, metrics, val_idx)
-
+        for m in ["Precision", "Recall", "F1"]:
+            val_writer.add_scalar(f"{m}", metrics[m], epoch)
+        val_writer.add_scalar(f"AvgLoss", validation_loss, epoch)
+        self.log_prf1_by_class(epoch, metrics, val_writer, self.val_tags[val_idx])
         cm = ConfusionMatrixDisplay(confusion_matrix=metrics["ConfusionMatrix"],
                                     display_labels=[c.name for c in self.config.classes])
         cm.plot(cmap='Blues', values_format='d')
@@ -97,6 +84,7 @@ def validate(epoch, config, model, dataloaders, metric_tracker):
                 labels.append(label.flatten())
         metrics = compute_metrics(config, labels, predicted_classes)
         metric_tracker.log_validation_metrics(epoch, total_loss/ len(dataloader), metrics, idx)
+    return total_loss
 
 def compute_metrics(config, labels, predicted_classes):
     labels = torch.cat(labels).cpu().flatten()
@@ -124,7 +112,7 @@ def evaluate(config, model, graph):
                                         graph.candidate_src.to(config.device),
                                         graph.candidate_dst.to(config.device),
                                         graph.candidate_support.to(config.device))
-        logits = model(dgl_graph, src, dst)
+        logits = model(dgl_graph, src, dst).squeeze(0)
         probs = torch.softmax(logits, dim=-1)
         max_probs, predicted_classes = torch.max(probs, dim=-1)
         for u, v, count, predicted_class, prob in zip(src, dst, support, predicted_classes, max_probs):

@@ -15,10 +15,18 @@ from groovi.graph.transforms import *
 SHARED_DEFAULTS = {
     'logging_level': "INFO",
     'class_set': "CPX10",
+    'node_feature_set': 'A',
+    'edge_feature_set': 'A',
     "seed": 12345,
     "n_cpus": 20,
     "gpu_ids": [],
-    'candidate_support_threshold': 2,
+    'candidate_support_threshold': 1,
+    "transforms": ["NORMALIZE_FEATURES"],
+    "feature_norm_vmax": 200,
+    'feature_norm_vmin': 0,
+    'node_feature_norm': "LOG1P",
+    'edge_feature_norm': "RATIO",
+    "features_to_mask": [],
 }
 
 GENERATE_DEFAULTS = {
@@ -43,18 +51,18 @@ GENERATE_DEFAULTS = {
 }
 
 MODEL_DEFAULTS = {
-    "ht_emb_dim": 2,
-    "rgcn_input_dim": 100,
-    "rgcn_hidden_dim": [100, 200],
-    "mlp_hidden_dim": [200, 50, 50],
+    "rgcn_hidden_dim": [256, 128],
+    "mlp_hidden_dim": [128, 64, 64],
     "mlp_dropout": 0.3,
+    "rgcn_dropout": 0.3,
     "update": "WConcat",
-    "add_layernorm": True,
-    "normalize": None,
-    "feature_norm_vmin": 0,
-    "feature_norm_vmax": 100,
-    "features_to_mask": [],
-    "transforms": [] #["NORMALIZE_NODES_01"] # "NORMALIZE_EDGES_01"],
+    'node_feature_proj_dim': None,
+    'edge_feature_proj_dim': None,
+    'augment_nodes_rgcn': True,
+    'node_augmentation': "DIFF", #RATIO
+    'edge_representation': 'SUPPORT',
+    'rgcn_layer': "Default", #Custom
+    'rgcn_custom_update': True, # only for Custom layer
 }
 
 TRAIN_ENGINE_DEFAULTS = {
@@ -109,8 +117,15 @@ class Config:
         self.classes = groovi.seq.sv.TYPE_SET_TO_TYPES[groovi.seq.sv.SVTypeSet[self.class_set]]
         self.n_classes = len(self.classes)
         self.class2label = {sv_class: i for i, sv_class in enumerate(self.classes)}
-        self.n_node_features = len(NodeFeature)
-        self.n_edge_types = len(EdgeFeature)
+        self.node_feature_set = NODE_FEATURE_SETS[self.node_feature_set]
+        self.node_aln_feature_set = list(set(self.node_feature_set) - set(AUX_NODE_FEATURES))
+        self.edge_feature_set = EDGE_FEATURE_SETS[self.edge_feature_set]
+        self.n_node_features = len(self.node_feature_set)
+        self.n_edge_types = len(self.edge_feature_set)
+        self.node_feat2id = {feat: i for i, feat in enumerate(self.node_feature_set)}
+        self.edge_feat2id = {feat: i for i, feat in enumerate(self.edge_feature_set)}
+        self.id2edge_feat = {i: feat for feat, i in self.edge_feat2id.items()}
+        self.transforms = [TRANSFORMS(self)[t] for t in self.transforms]
 
     def set_defaults(self, default_values_dict):
         for k, v, in default_values_dict.items():
@@ -182,10 +197,6 @@ class DiscoverConfig(Config):
             self.device = torch.device("cpu")
             limit_cores(self.n_cpus)
 
-        # -------- discovery-related setup
-        transform_db = TRANSFORMS(self)
-        self.transforms = [transform_db[t] for t in self.transforms]
-
         # -------- setup env
         seed_everything(self.seed)
 
@@ -202,11 +213,11 @@ class TrainEdgeConfig(Config):
         # -------- setup the output directory structure
         self.img_dir = os.path.join(self.experiment_dir, "vis")  # plots, graph visualizations
         self.tensorboard_dir = os.path.join(self.log_dir, "tensorboard", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-        self.model_checkpoints_dir = os.path.join(self.experiment_dir, "modes")  # model checkpoints
+        self.model_checkpoints_dir = os.path.join(self.experiment_dir, "models")  # model checkpoints
         Path(self.img_dir).mkdir(parents=True, exist_ok=True)
         Path(self.tensorboard_dir).mkdir(parents=True, exist_ok=True)
         Path(self.model_checkpoints_dir).mkdir(parents=True, exist_ok=True)
-        self.model_path = os.path.join(self.experiment_dir, "final_model.pt")
+        self.model_path = os.path.join(self.experiment_dir, "best_model.pt")
         self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
 
         # -------- setup compute
@@ -221,10 +232,9 @@ class TrainEdgeConfig(Config):
         seed_everything(self.seed)
 
         # -------- training-related setup
-        self.transforms = [TRANSFORMS(self)[t] for t in self.transforms]
         self.label_weights = torch.ones(self.n_classes)
         for c in self.classes:
-            self.label_weights[self.class2label[c]] = 1.0 if c == SVBpType.NEG else 10.0
+            self.label_weights[self.class2label[c]] = 1.0 #if c == SVBpType.NEG else 10.0
 
         self.validate_params()
         logging.info(self)

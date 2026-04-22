@@ -7,23 +7,6 @@ import os
 import seaborn as sns
 import torch
 
-class SubgraphProfile:
-    def __init__(self, g: GrooviGraph, node_ids: list[int]):
-        self.g = g
-        self.node_ids = node_ids
-    
-    def get_profile(self) -> str:
-        node_profile_strs = []
-        for nid in self.node_ids:
-            node_profile = ["_"] * len(NodeFeature)
-            for node_feature in NodeFeature:
-                d_id: int = NODE_FEATURE_TO_ID[node_feature]
-                if self.g.dgl_graph.ndata[FEAT][nid][d_id] > 0:
-                    node_profile[d_id] = node_feature.value
-            node_profile_str = f'[{" ".join(node_profile)}]'
-            node_profile_strs.append(node_profile_str)
-        edge_profile_str = f"{' '.join(node_profile_strs)}"
-        return edge_profile_str
     
 class DatasetStats:
     def __init__(self, config):
@@ -37,14 +20,27 @@ class DatasetStats:
             'ytick.labelsize': 12,
             'figure.titlesize': 14
         }
-    
+
+    def get_profile(self, g, node_ids) -> str:
+        node_profile_strs = []
+        for nid in node_ids:
+            node_profile = ["_"] * len(NodeFeature)
+            for f in self.config.node_feature_set:
+                d_id = self.config.node_feat2id[f]
+                if g.dgl_graph.ndata[FEAT][nid][d_id] > 0:
+                    node_profile[d_id] = f.value
+            node_profile_str = f'[{" ".join(node_profile)}]'
+            node_profile_strs.append(node_profile_str)
+        edge_profile_str = f"{' '.join(node_profile_strs)}"
+        return edge_profile_str
+
     def write_edge_profiles(self, graphs: list[GrooviGraph], all_sv_class_matches: list[list], tag: str):
         profiles = {}
         for g, class_matches in zip(graphs, all_sv_class_matches):
             assert len(class_matches) == len(g.candidate_src) == len(g.candidate_dst)
             for match, src_id, dst_id in zip(class_matches, g.candidate_src.tolist(), g.candidate_dst.tolist()):
                 node_ids_of_interest = sorted(set([src_id, src_id + 1, dst_id - 1, dst_id]))
-                profile = SubgraphProfile(g, node_ids_of_interest).get_profile()
+                profile = self.get_profile(g, node_ids_of_interest)
                 if match not in profiles: profiles[match] = {}
                 if profile not in profiles[match]: profiles[match][profile] = 0
                 profiles[match][profile] += 1
@@ -68,8 +64,8 @@ class DatasetStats:
             axes = axes.flatten()
             color_pallete = sns.color_palette("husl", num_features)
 
-            for feat in NodeFeature:
-                i = NODE_FEATURE_TO_ID[feat]
+            for feat in self.config.node_feature_set:
+                i = self.config.node_feat2id[feat]
                 feature_data = all_feats[:, i]
                 
                 _, bin_edges = np.histogram(feature_data, bins='auto')

@@ -19,19 +19,12 @@ class EDGE_LENGTHS(Enum):
 
 EDGE_COLOR_MAPCOLORS = {i: color for i, color in enumerate(['mediumpurple', 'pink', 'lightgreen', 'darkseagreen', 'lightblue', 'lightgray', 'yellow', 'pink', "blue", "red"])}
 
-def visualize_groovi_graph(g: GrooviGraph, path: str, candidate_src= None, candidate_dst=None, expected_labels=None, predicted_labels=None):
-    vis_format = path.split('.')[-1]
-    if vis_format in ['html']:
-        visualize_groovi_graph_pyvis(g, path, candidate_src, candidate_dst, expected_labels, predicted_labels)
-    else:
-        raise ValueError(f'{vis_format} not supported')
+def visualize_groovi_graph(config, g, path, candidate_src=None, candidate_dst=None, expected_labels=None, predicted_labels=None):
+    visualize_groovi_graph_pyvis(config, g, path, candidate_src, candidate_dst, expected_labels, predicted_labels)
     
-def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None, candidate_dst = None, expected_labels = None, predicted_labels = None, stagger_edges = False) -> None:
+def visualize_groovi_graph_pyvis(config, g, path, candidate_src, candidate_dst, expected_labels, predicted_labels, stagger_edges=False):
     '''
     Draws a genome graph, made to look linear. Turn stagger_edges on to add randomness for debugging purposes.
-    Inputs:
-        g: GrooviGraph to visualize
-        path: path to save, ensure it ends in html
     '''
     # Randomness option, used for debugging overlapping edges
     def get_stagger():
@@ -40,8 +33,8 @@ def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None,
     
     # init
     net = Network(notebook=True, directed=True, cdn_resources='remote')
-    straight_edges = set([EDGE_FEATURE_TO_ID[relation] for relation in EdgeFeature if relation in [EdgeFeature.REF, EdgeFeature.SEG]])
-    adj_edges = set([EDGE_FEATURE_TO_ID[relation] for relation in EdgeFeature if relation in [EdgeFeature.LL, EdgeFeature.LR, EdgeFeature.RL, EdgeFeature.RR]])
+    straight_edges = set([config.edge_feat2id[relation] for relation in config.edge_feature_set if relation in [EdgeFeature.REF, EdgeFeature.SEG]])
+    adj_edges = set([config.edge_feat2id[relation] for relation in config.edge_feature_set if relation in CANDIDATE_EDGE_FEATURE_TYPES])
     # Nodes & Annotations
     n = g.dgl_graph.num_nodes()
     for node_id in range(n):
@@ -50,7 +43,7 @@ def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None,
         n_features = ndata[FEAT][node_id]
         ht = ndata["HT"][node_id]
 
-        for node_feature_name, node_feature_idx in NODE_FEATURE_TO_ID.items():
+        for node_feature_name, node_feature_idx in config.node_feat2id.items():
             feature_value = n_features[node_feature_idx].item()
             display_label.append(f'{node_feature_name.value}: {feature_value:.2f}')
         
@@ -113,8 +106,16 @@ def visualize_groovi_graph_pyvis(g: GrooviGraph, path:str, candidate_src = None,
             if predicted_labels is not None: display_label.append(f'Predicted: {predicted_labels[i]}')
             display_label = '\n'.join(display_label)
             color = 'orange'
+            if expected_labels is not None and predicted_labels is not None:
+                if expected_labels[i] != predicted_labels[i]:
+                    color = 'red'
+            elif expected_labels is not None:
+                if expected_labels[i] == "NEG":
+                    color = 'red'
             length = EDGE_LENGTHS.MEDIUM.value + get_stagger()
-            net.add_edge(u.item(), v.item(), color=color, label=display_label, length=EDGE_LENGTHS.MEDIUM.value, smooth={'type': 'curvedCW', 'roundness': 0.7 + get_stagger()*0.2}, width=EDGE_WIDTH, arrowsize=ARROWSIZE)
+            net.add_edge(u.item(), v.item(), color=color, label=display_label, length=EDGE_LENGTHS.MEDIUM.value,
+                         smooth={'type': 'curvedCW', 'roundness': 0.7 + get_stagger()*0.2},
+                         width=EDGE_WIDTH, arrowsize=ARROWSIZE)
         
     net.toggle_physics(True)
     net.set_edge_smooth('dynamic')

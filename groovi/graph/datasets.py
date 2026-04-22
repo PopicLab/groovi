@@ -28,10 +28,11 @@ class StreamingGraphDataset(IterableDataset):
 
     def __iter__(self):
         graph = GrooviGraph.build(self.config)
+        if self.config.save_graphs: self.save(graph)
+        graph.apply_transforms(T.Compose(self.config.transforms))
         self.stats.write_stats([graph], "streaming")
         if self.config.visualize_graphs:
-            visualize_groovi_graph(graph, os.path.join(self.config.img_dir, 'graph.html'))
-        if self.config.save_graphs: self.save(graph)
+            visualize_groovi_graph(self.config, graph, os.path.join(self.config.img_dir, 'graph.html'))
         yield graph
 
 
@@ -53,7 +54,7 @@ class StaticDataset(Dataset):
             g = self.load(path)
             g.filter_candidate_edges(self.config.candidate_support_threshold)
             g.apply_transforms(self.transforms)
-            self.graphs.append(self.load(path))
+            self.graphs.append(g)
 
     @staticmethod
     def load(path: str) -> GrooviGraph:
@@ -93,25 +94,10 @@ class StaticEdgeDataset(StaticDataset):
             all_sv_class_matches.append(sv_class_matches)
 
             if config.graph_visualization_interval > 0 and i % config.graph_visualization_interval == 0:
-                visualize_groovi_graph(graph, os.path.join(config.img_dir, f'graph_{self.dataset_tag}_{i}.html'),
+                visualize_groovi_graph(self.config, graph, os.path.join(config.img_dir, f'graph_{self.dataset_tag}_{i}.html'),
                                        graph.candidate_src, graph.candidate_dst, sv_class_matches)
-
-        logging.info("writing stats")
         self.stats.write_stats(self.graphs, self.dataset_tag, all_sv_class_matches, label_summaries)
 
     def __getitem__(self, index):
         graph = self.graphs[index]
         return graph.dgl_graph, graph.candidate_src, graph.candidate_dst, self.labels[index]
-
-class StaticGraphDataset(StaticDataset):
-    def __init__(self, config):
-        super().__init__(config)
-        labels = []
-        for graph, info_path in zip(self.graphs, self.annotations):
-            with open(info_path, 'r') as file:
-                annotation = yaml.safe_load(file) # graph-level labels
-                assert 'class' in annotation
-                #labels.append(SV_GRAPH_CLASS_TO_ID_FN[annotation['class']]) # todo
-        self.labels = torch.tensor(labels, dtype=torch.long)
-    def __getitem__(self, index):
-        return self.graphs[index].dgl_graph, self.labels[index]
