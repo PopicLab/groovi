@@ -146,6 +146,19 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
             continue
 
         matches = match_fn(candidates, tolerance)
+
+        # remove all non-dispersions across different contigs
+        if not sv_info.get('dispersion', False):
+            single_chrom = []
+            for match in matches:
+                matched_chroms = {c for bkp in match for c in (bkp.chr1, bkp.chr2)}
+                if len(matched_chroms) == 1:
+                    single_chrom.append(match)
+
+            if len(single_chrom) < len(matches):
+                logging.info(f'Filtered {len(matches) - len(single_chrom)} non-dispersions matched across contigs')
+            matches = single_chrom
+
         csvs = [ComplexSV.from_records(recs) for recs in matches]
         all_matches.extend(csvs)
 
