@@ -1,7 +1,7 @@
 from groovi.cli.config import DiscoverConfig
 from groovi.graph.datasets import StreamingGraphDataset
 from groovi.graph.visualize import visualize_groovi_graph
-from groovi.gnn.models import EdgeClassificationModel
+from groovi.gnn.models import *
 from groovi.gnn.engine import *
 import groovi.seq.io as io
 from groovi.seq.stitching import generate_merged_callset
@@ -14,7 +14,10 @@ def main(config_yaml):
         classified_sv_bkps = [sv for sv in io.vcf_iter(config.bkp_vcf_file_path)]
     else:
         # --------- 1. Model Setup--------
-        model = EdgeClassificationModel(config)
+        #model = EdgeClassificationModel(config)
+        #model = Model([config.n_node_features] + config.rgcn_hidden_dim, config.n_edge_types, config.n_classes)
+        model = EdgeClassifier(config)
+
         model.load_state_dict(torch.load(config.model, map_location=config.device))
         model = model.to(device=config.device)
         # ------ 2. Breakpoint classification ------
@@ -23,7 +26,7 @@ def main(config_yaml):
         classified_sv_bkps = evaluate(config, model, graph)
         
         # ------ 3. Visualization ------
-        if config.visualize_graphs: visualize_groovi_graph(graph, os.path.join(config.img_dir, "graph_annotated.html"), graph.candidate_src, graph.candidate_dst, expected_labels=None, predicted_labels=[svbkp.type for svbkp in classified_sv_bkps])
+        if config.visualize_graphs: visualize_groovi_graph(config, graph, os.path.join(config.img_dir, "graph_annotated.html"), graph.candidate_src, graph.candidate_dst, expected_labels=None, predicted_labels=[svbkp.type for svbkp in classified_sv_bkps])
 
         # ----- 4. Filter Neg, Write classified breakpoints to VCF ------
         classified_sv_bkps = [sv for sv in classified_sv_bkps if sv.type != SVBpType.NEG]

@@ -1,3 +1,4 @@
+from groovi.graph.constants import *
 from groovi.seq.io import *
 from collections import defaultdict
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ import numpy as np
 from pycues import *
 from sklearn.cluster import DBSCAN
 import logging
+import time
 
 class SVSignalProcessor:
     @dataclass
@@ -38,9 +40,9 @@ class SVSignalProcessor:
         self.cues_config.record_inter_chromosomal_junctions = config.interchrom
         self.cues_config.n_threads = self.config.n_cpus
         self.cues_config.aln_batch_size = self.config.aln_batch_size
+        self.cues_config.max_seg_alns_to_fetch = 200
         self.cues = Cues(self.cues_config)
-        self.stats_to_collect = {AlnStatistic.kRD, AlnStatistic.kRDAll, AlnStatistic.kClipLeft,
-                                 AlnStatistic.kClipRight, AlnStatistic.kIns} # TODO: reset for node feature sets
+        self.stats_to_collect = set(NODE_FEAT_TO_ALNSTAT[f] for f in self.config.node_aln_feature_set)
 
 
     def extract_junctions(self, cluster=True):
@@ -151,5 +153,8 @@ class SVSignalProcessor:
                                                 max(segment.end - self.config.node_stats_buffer, segment.start),
                                                 min(segment.end + 1 + self.config.node_stats_buffer_overlap,
                                                     self.config.fai_index.get_chr_by_name(segment.chr).len)))
-        return (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect),
+        stats = (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect),
                 self.cues.collect_stats(self.config.bam, tail_segment_rois, self.stats_to_collect))
+        logging.info("Finished node stats collection")
+        return stats
+

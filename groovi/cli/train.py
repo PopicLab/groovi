@@ -13,22 +13,23 @@ def main(config_yaml):
     config = TrainEdgeConfig(config_yaml)
 
     # ---------Training dataset setup--------
-    train_dataset = StaticEdgeDataset(config)
-    val_dataset = StaticEdgeDataset(config, is_validation=True)
-    #val_size = int(config.validation_ratio * len(dataset))
-    #train_size = len(dataset) - val_size
-    #train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    train_dataset = StaticEdgeDataset(config, graph_paths=config.graphs, graphs_info=config.graphs_info, tag="Train")
+    val_datasets = [
+        StaticEdgeDataset(
+            config, 
+            graph_paths=paths, 
+            graphs_info=config.graphs_info_validation[key], 
+            tag=key
+        ) for key, paths in sorted(config.graphs_validation.items())
+    ]
 
     # --------- Data loaders -----------------
     train_dataloader = GraphDataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
-    val_dataloader = GraphDataLoader(val_dataset, batch_size=config.batch_size, shuffle=False)
-    logging.info("Size of train set: %d; validation set: %d" % (len(train_dataloader), len(val_dataloader)))
+    val_dataloaders = [GraphDataLoader(val_dataset, batch_size=config.batch_size, shuffle=False) for val_dataset in val_datasets]
+    logging.info("Size of train set: %d; validation set: %d" % (len(train_dataloader), sum([len(val_dataloader) for val_dataloader in val_dataloaders])))
 
     # ---------Model Setup--------
-    model = EdgeClassificationModel(config)
-
-    #model = Model([config.n_node_features] + config.rgcn_hidden_dim, config.n_edge_types, config.n_classes)
-
+    model = EdgeClassifier(config)
     if config.pretrained_model: model.load_state_dict(torch.load(config.pretrained_model, config.device))
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -37,11 +38,22 @@ def main(config_yaml):
     model = model.to(device=config.device)
 
     # ------ Training process ------
+    best_model = None
+    best_loss = None
+    best_epoch = None
+    metric_tracker = MetricTracker(config)
     for epoch in range(config.num_epochs):
-        train(epoch, config, model, train_dataloader, optimizer)
-        # check model checkpoint interval
-        torch.save(model.state_dict(), "%s/model.epoch%d.pt" % (config.model_checkpoints_dir, epoch))
-        validate(epoch, config, model, val_dataloader)
+        train(epoch, config, model, train_dataloader, optimizer, metric_tracker)
+        loss = validate(epoch, config, model, val_dataloaders, metric_tracker)
         lr_scheduler.step()
-    torch.save(model.state_dict(), config.model_path)
+        if best_loss is None or loss < best_loss: 
+            best_loss = loss
+            best_model = model
+            best_epoch = epoch
+        if epoch % config.model_checkpoint_interval == 0:
+            torch.save(model.state_dict(), "%s/model.epoch%d.pt" % (config.model_checkpoints_dir, epoch))
+    if best_model:
+        logging.info("Best model at epoch %d, loss = %f" % (best_epoch, best_loss))
+        torch.save(best_model.state_dict(), config.model_path)
+
 
