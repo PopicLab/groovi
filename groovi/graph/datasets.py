@@ -27,12 +27,14 @@ class StreamingGraphDataset(IterableDataset):
             stats_file.write('\n'.join(f"{k}: {v}" for k, v in graph.get_stats().items()))
 
     def __iter__(self):
-         if self.config.use_cached_graphs:
+        if self.config.use_cached_graphs:
             graph_file_path = os.path.join(self.config.graph_dir, f"graph_full.pkl")
             with open(graph_file_path, 'rb') as graph_file: graph = pickle.load(graph_file)
-            if self.config.save_graphs: self.save(graph)
         else:
             graph = GrooviGraph.build(self.config)
+
+        if self.config.save_graphs: self.save(graph)
+
         graph.apply_transforms(T.Compose(self.config.transforms))
         self.stats.write_stats([graph], "streaming")
         if self.config.visualize_graphs:
