@@ -86,7 +86,8 @@ STITCHING_DEFAULTS = {
     "gap_file": None,
     "minimum_length": 50,
     "use_cached_predictions": False,
-    "prioritize_evidence": True
+    "prioritize_evidence": True,
+    'maximum_fragment_size': None,
 }
 
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}

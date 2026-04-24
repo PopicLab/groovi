@@ -165,7 +165,7 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
     return all_matches
 
 
-def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=False):
+def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=False, maximum_fragment_size: int=None):
     # filter the list of ComplexSV objects created by dispatch_match_functions()
     # taking the higher-confidence ComplexSV in the case of any collision
     chrom_intervals = defaultdict(IntervalTree)
@@ -184,7 +184,8 @@ def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=F
                 not any(chrom_intervals[rec.chrom].overlap(*occupied_interval) for occupied_interval in occupied_intervals):
             for occupied_interval in occupied_intervals:
                 chrom_intervals[rec.chrom].addi(*sorted(occupied_interval))
-            filtered_recs.append(rec)
+            if maximum_fragment_size is None or max([frag.end - frag.start for frag in rec.fragments]) <= maximum_fragment_size:
+                filtered_recs.append(rec)
         else:
             continue
     return filtered_recs
@@ -363,7 +364,7 @@ def generate_merged_callset(input_recs: List[SVBreakpoint], config: DiscoverConf
     logging.info(f'Found {len(merged_recs)} stitched SVs')
 
     if config.filter_overlaps:
-        filtered_recs = filter_merged_recs(filtered_recs, config.prioritize_evidence)
+        filtered_recs = filter_merged_recs(filtered_recs, config.prioritize_evidence, config.maximum_fragment_size)
         print(f'Filtered to {len(filtered_recs)} stitched SVs')
 
     export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_vcf_file_path,
