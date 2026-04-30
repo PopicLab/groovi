@@ -82,12 +82,15 @@ STITCHING_DEFAULTS = {
     "breakpoint_threshold": 500,
     "sep_frag_recs": True,
     "unmatched_edge_file": None,
-    "filter_overlaps": True,
+    "filter_overlaps": False,
+    "deduplicate_calls": True,
     "gap_file": None,
     "minimum_length": 50,
     "use_cached_predictions": False,
     "prioritize_evidence": True,
-    'maximum_fragment_size': None,
+    'maximum_length': 1000000,
+    "minimum_fragment_length": 30,
+    'duplication_threshold': 10,
 }
 
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}

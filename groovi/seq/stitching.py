@@ -165,7 +165,7 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
     return all_matches
 
 
-def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=False, maximum_fragment_size: int=None):
+def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=False):
     # filter the list of ComplexSV objects created by dispatch_match_functions()
     # taking the higher-confidence ComplexSV in the case of any collision
     chrom_intervals = defaultdict(IntervalTree)
@@ -184,12 +184,87 @@ def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=F
                 not any(chrom_intervals[rec.chrom].overlap(*occupied_interval) for occupied_interval in occupied_intervals):
             for occupied_interval in occupied_intervals:
                 chrom_intervals[rec.chrom].addi(*sorted(occupied_interval))
-            if maximum_fragment_size is None or max([frag.end - frag.start for frag in rec.fragments]) <= maximum_fragment_size:
-                filtered_recs.append(rec)
+            filtered_recs.append(rec)
         else:
             continue
     return filtered_recs
 
+
+def _fragments_match(frag1: Any, frag2: Any, buffer: int) -> bool:
+    """Helper to check if two individual fragments match within the buffer."""
+    if frag1.chrom != frag2.chrom: return False
+    if abs(frag1.start - frag2.start) > buffer: return False
+    if abs(frag1.end - frag2.end) > buffer: return False
+
+    # Handle optional target/translocation coordinates
+    t_chrom1 = getattr(frag1, 'target_chrom', None)
+    t_chrom2 = getattr(frag2, 'target_chrom', None)
+    if t_chrom1 != t_chrom2: return False
+
+    t_start1 = getattr(frag1, 'target_start', None)
+    t_start2 = getattr(frag2, 'target_start', None)
+    if (t_start1 is None) != (t_start2 is None): return False
+    if t_start1 is not None and abs(t_start1 - t_start2) > buffer: return False
+
+    t_end1 = getattr(frag1, 'target_end', None)
+    t_end2 = getattr(frag2, 'target_end', None)
+    if (t_end1 is None) != (t_end2 is None): return False
+    if t_end1 is not None and abs(t_end1 - t_end2) > buffer: return False
+
+    return True
+
+
+def deduplicate_svs(merged_recs: List['ComplexSV'], buffer: int):
+    """
+    Remove duplicates only if the full set of fragments matches an existing SV.
+    """
+    # Index by (Anchor_Chromosome, SV_Type)
+    chrom_intervals = defaultdict(IntervalTree)
+    filtered_recs = []
+
+    # Sort highest evidence first
+    key_func = lambda csv: -sum([rec.evidence if rec.evidence else 0 for rec in csv.records]) / (len(csv.records) or 1)
+
+    for rec in sorted(merged_recs, key=key_func):
+        if not rec.fragments:
+            continue
+
+        # Sort fragments canonically to guarantee 1-to-1 comparison aligns correctly
+        sorted_frags = sorted(rec.fragments, key=lambda f: (f.chrom, f.start, f.end))
+
+        # Use the first fragment in the sorted list as our "Anchor"
+        anchor_frag = sorted_frags[0]
+        tree = chrom_intervals[(anchor_frag.chrom, rec.sv_type)]
+
+        is_duplicate = False
+
+        # Query the tree for candidate SVs using the anchor fragment's start position
+        candidates = tree.overlap(anchor_frag.start - buffer, anchor_frag.start + buffer + 1)
+
+        # Check full fragment sets against candidates
+        for match in candidates:
+            accepted_rec, accepted_sorted_frags = match.data
+
+            # If they don't have the same number of fragments, they aren't duplicates
+            if len(sorted_frags) != len(accepted_sorted_frags):
+                continue
+
+            # Verify every single pair matches
+            all_match = True
+            for f_new, f_accepted in zip(sorted_frags, accepted_sorted_frags):
+                if not _fragments_match(f_new, f_accepted, buffer):
+                    all_match = False
+                    break
+
+            if all_match:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            tree.addi(anchor_frag.start, anchor_frag.start + 1, data=(rec, sorted_frags))
+            filtered_recs.append(rec)
+
+    return filtered_recs
 
 def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=False):
     """
@@ -341,31 +416,42 @@ def generate_merged_callset(input_recs: List[SVBreakpoint], config: DiscoverConf
     # merged_recs = dispatch_match_functions(input_recs, threshold=breakpoint_threshold)
     merged_recs = find_matches(input_recs, tolerance=config.breakpoint_threshold)
 
-    if config.complex_sv_unfiltered_file_path:
-        export_callset_to_vcf(merged_recs, output_path=config.complex_sv_unfiltered_file_path,
-                              contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
-
     # filter stitched SVs by minimum length
 
     stitched_small_recs = 0
+    stitched_large_recs = 0
 
     filtered_recs = []
     for csv in merged_recs:
         sv_lengths = [frag.end - frag.start for frag in csv.fragments]
         total_length = sum(sv_lengths)
+        smallest_fragment = min(sv_lengths)
 
-        if total_length >= config.minimum_length:
+        if config.minimum_length <= total_length <= config.maximum_length and smallest_fragment >= config.minimum_fragment_length:
             filtered_recs.append(csv)
         else:
-            stitched_small_recs += 1
+            if total_length < config.minimum_length or smallest_fragment < config.minimum_fragment_length:
+                stitched_small_recs += 1
+            if total_length > config.maximum_length:
+                stitched_large_recs += 1
+
+    if config.complex_sv_unfiltered_file_path:
+        export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_unfiltered_file_path,
+                              contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
 
     logging.info(f'Removed {stitched_small_recs} stitched SVs with total length below minimum {config.minimum_length}.')
+    logging.info(f'Removed {stitched_large_recs} stitched SVs with total length above maximum {config.maximum_length}.')
 
     logging.info(f'Found {len(merged_recs)} stitched SVs')
 
+    if config.deduplicate_calls:
+        filtered_recs = deduplicate_svs(filtered_recs, config.duplication_threshold)
+        print(f'Deduplication results in {len(filtered_recs)} remaining stitched SVs')
+
     if config.filter_overlaps:
-        filtered_recs = filter_merged_recs(filtered_recs, config.prioritize_evidence, config.maximum_fragment_size)
+        filtered_recs = filter_merged_recs(filtered_recs, config.prioritize_evidence)
         print(f'Filtered to {len(filtered_recs)} stitched SVs')
+
 
     export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_vcf_file_path,
                           contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
