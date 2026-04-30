@@ -295,7 +295,7 @@ SV_REGISTRY = {
     },
     'nrTRA': {
         'grammar': ('A_->_A', '_A->A_'),
-        'candidates': ['nrTRA_A', 'nrTRA_B', 'nrTRA_C'],
+        'candidates': ['nrTRA_A', 'nrTRA_B', 'nrTRA_A'],
         'match_fn': lambda x, tolerance: match_nrtra(x[0], x[1], x[2], tolerance),
         'dispersion': True,
         'start_stop_fn': lambda csv: (csv.source_start, csv.source_end),
