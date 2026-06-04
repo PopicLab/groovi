@@ -205,3 +205,11 @@ class Fragment:
     target_start: int=None
     target_end: int=None
 
+    def __post_init__(self):
+        # force ends to be at least one position after start
+        if self.end < self.start + 1:
+            self.end = self.start + 1
+
+        if self.target_start is not None and self.target_end is not None and self.target_end < self.target_start + 1:
+            self.target_end = self.target_start + 1
+

@@ -62,7 +62,7 @@ def left_right_adjacent(pairs, tolerance=0, side='either'):
     return adjacent_pairs
 
 
-def  interlocking_adjacent(left_tree, right_tree, tolerance=0, side='either'):
+def interlocking_adjacent(left_tree, right_tree, tolerance=0, side='either'):
     """
     Finds the set of pairs where left and right intervals interlock and the starts or ends are adjacent
     """
@@ -138,7 +138,7 @@ def interlocking_intersection(left_tree, middle_tree, right_tree, tolerance=0):
 
 def envelop(left_tree, right_tree, tolerance=0):
     """
-    Finds the pairs where intervals from the right tree are enveloped by intervals in the leff tree
+    Finds the pairs where intervals from the right tree are enveloped by intervals in the left tree
     """
     valid_pairs = []
     for i_left in left_tree:
