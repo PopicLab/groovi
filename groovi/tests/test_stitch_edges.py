@@ -19,7 +19,7 @@ def _create_sample_recs():
         {'id': 'DEL', 'start': 10, 'stop': 20},
         {'id': 'nrTRA_A', 'start': 10, 'stop': 100},
         {'id': 'nrTRA_B', 'start': 11, 'stop': 119},
-        {'id': 'nrTRA_C', 'start': 99, 'stop': 120},
+        {'id': 'nrTRA_A', 'start': 99, 'stop': 120},
     ]
 
     recs = []
@@ -443,10 +443,10 @@ class TestSVTypes(TestCase):
         data = [
             {'start': 1, 'stop': 20, 'qual': 100, 'id': 'nrTRA_A'},
             {'start': 2, 'stop': 59, 'qual': 100, 'id': 'nrTRA_B'},
-            {'start': 19, 'stop': 60, 'qual': 100, 'id': 'nrTRA_C'},
+            {'start': 19, 'stop': 60, 'qual': 100, 'id': 'nrTRA_A'},
             {'start': 101, 'stop': 120, 'qual': 100, 'id': 'nrTRA_A'},
             {'start': 102, 'stop': 124, 'qual': 100, 'id': 'nrTRA_B'},
-            {'start': 119, 'stop': 125, 'qual': 100, 'id': 'nrTRA_C'},
+            {'start': 119, 'stop': 125, 'qual': 100, 'id': 'nrTRA_A'},
         ]
         expected_result = [
             {'start': 2, 'stop': 19, 'sv_type': 'nrTRA', 'target': 59, 'sv_len': 17},
