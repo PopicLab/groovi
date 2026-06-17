@@ -39,6 +39,7 @@ GENERATE_DEFAULTS = {
     'min_clipped_len': 10,
     'min_discord_len': 40,
     'min_mapq': 10,
+    'max_discordance': 0.02,
     'recover_ins': True,
     'recover_clipping': True,
     'recover_subfrag': True,

@@ -32,6 +32,7 @@ class SVSignalProcessor:
         self.cues_config.max_discord_len = np.iinfo(np.int32).max
         self.cues_config.min_clipped_len = config.min_clipped_len
         self.cues_config.min_mapq = config.min_mapq
+        self.cues_config.max_discordance = config.max_discordance
         self.cues_config.run_recovery_ins = config.recover_ins
         self.cues_config.run_recovery_clipping = config.recover_clipping
         self.cues_config.run_recovery_subfrags = config.recover_subfrag
