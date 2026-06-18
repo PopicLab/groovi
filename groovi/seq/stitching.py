@@ -3,8 +3,6 @@ from collections import defaultdict, Counter
 from intervaltree import Interval, IntervalTree
 import pysam
 import re
-import argparse
-import math
 
 from groovi.cli.config import DiscoverConfig
 from groovi.seq.sv import SVBreakpoint, Fragment
@@ -214,57 +212,74 @@ def _fragments_match(frag1: Any, frag2: Any, buffer: int) -> bool:
     return True
 
 
-def deduplicate_svs(merged_recs: List['ComplexSV'], buffer: int):
+def deduplicate_svs(svs: List['ComplexSV'], overlap_frac: float = 0.7, size_sim: float = 0.7) -> List['ComplexSV']:
     """
-    Remove duplicates only if the full set of fragments matches an existing SV.
+    Remove duplicates if the full set of fragments meets the fractional overlap
+    and size similarity thresholds against an existing SV.
     """
-    # Index by (Anchor_Chromosome, SV_Type)
+
+    def get_evidence(csv):
+        return sum([rec.evidence if rec.evidence else 0 for rec in csv.records]) / (len(csv.records) or 1)
+
+    svs = sorted(svs, key=get_evidence, reverse=True)
+
     chrom_intervals = defaultdict(IntervalTree)
-    filtered_recs = []
+    results = []
 
-    # Sort highest evidence first
-    key_func = lambda csv: -sum([rec.evidence if rec.evidence else 0 for rec in csv.records]) / (len(csv.records) or 1)
-
-    for rec in sorted(merged_recs, key=key_func):
-        if not rec.fragments:
+    for sv in svs:
+        if not sv.fragments:
             continue
 
+        keep = True
+
         # Sort fragments canonically to guarantee 1-to-1 comparison aligns correctly
-        sorted_frags = sorted(rec.fragments, key=lambda f: (f.chrom, f.start, f.end))
-
-        # Use the first fragment in the sorted list as our "Anchor"
+        sorted_frags = sorted(sv.fragments, key=lambda f: (f.chrom, f.start, f.end))
         anchor_frag = sorted_frags[0]
-        tree = chrom_intervals[(anchor_frag.chrom, rec.sv_type)]
+        tree = chrom_intervals[(anchor_frag.chrom, sv.sv_type)]
 
-        is_duplicate = False
+        # Query the tree using the anchor fragment's actual interval
+        # (Using max(start + 1, end) ensures a valid interval even for 0-length insertions)
+        anchor_end_padded = max(anchor_frag.start + 1, anchor_frag.end)
+        candidates = tree.overlap(anchor_frag.start, anchor_end_padded)
 
-        # Query the tree for candidate SVs using the anchor fragment's start position
-        candidates = tree.overlap(anchor_frag.start - buffer, anchor_frag.start + buffer + 1)
-
-        # Check full fragment sets against candidates
         for match in candidates:
-            accepted_rec, accepted_sorted_frags = match.data
+            accepted_sv, accepted_sorted_frags = match.data
 
-            # If they don't have the same number of fragments, they aren't duplicates
             if len(sorted_frags) != len(accepted_sorted_frags):
                 continue
 
-            # Verify every single pair matches
+            # Verify soft overlap for every single pair
             all_match = True
             for f_new, f_accepted in zip(sorted_frags, accepted_sorted_frags):
-                if not _fragments_match(f_new, f_accepted, buffer):
+
+                # Calculate lengths
+                len_new = max(1, f_new.end - f_new.start)
+                len_accepted = max(1, f_accepted.end - f_accepted.start)
+
+                # Calculate the intersection distance
+                intersection = max(0, min(f_new.end, f_accepted.end) - max(f_new.start, f_accepted.start))
+
+                # Calculate similarity metrics
+                current_size_frac = min(len_new, len_accepted) / max(len_new, len_accepted)
+                current_rec_overlap = intersection / max(len_new, len_accepted)
+
+                # If a pair fails BOTH the size similarity and overlap thresholds, it's not a duplicate
+                if current_size_frac < size_sim and current_rec_overlap < overlap_frac:
                     all_match = False
                     break
 
             if all_match:
-                is_duplicate = True
+                keep = False
                 break
 
-        if not is_duplicate:
-            tree.addi(anchor_frag.start, anchor_frag.start + 1, data=(rec, sorted_frags))
-            filtered_recs.append(rec)
+        if keep:
+            tree.addi(anchor_frag.start, anchor_end_padded, data=(sv, sorted_frags))
+            results.append(sv)
+        else:
+            logging.debug("FILTER deduplicate_svs: %s" % sv)
 
-    return filtered_recs
+    return results
+
 
 def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=False):
     """
