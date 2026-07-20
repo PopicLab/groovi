@@ -70,63 +70,86 @@ class GrooviGraph:
 
     def add_nodes(self, ref_segments, node_stats):
         head_segment_stats, tail_segment_stats = node_stats
-        node_idx = 0
-        for seq_idx, segment in enumerate(ref_segments):
-            self._add_node(ref_segment=segment, node_type=NodeType.HEAD, idx=node_idx)
-            self._add_node(ref_segment=segment, node_type=NodeType.TAIL, idx=node_idx + 1)
+        n = len(ref_segments)
 
-            head_feat = torch.ones(self.config.n_node_features, dtype=torch.float32)
-            tail_feat = torch.ones(self.config.n_node_features, dtype=torch.float32)
-            for i, f in enumerate(self.config.node_feature_set):
-                if f in AUX_NODE_FEATURES: continue
-                aln_stat = NODE_FEAT_TO_ALNSTAT[f]
-                head_feat[i] = head_segment_stats[seq_idx][aln_stat]
-                tail_feat[i] = tail_segment_stats[seq_idx][aln_stat]
-            if NodeFeature.HT in self.config.node_feature_set:
-                head_feat[self.config.node_feat2id[NodeFeature.HT]] = 0 # 0 for HEAD, 1 for TAIL
-                tail_feat[self.config.node_feat2id[NodeFeature.HT]] = 1
-            self.dgl_graph.add_nodes(2, data={"HT": torch.tensor([0, 1], dtype=torch.int64),
-                                              FEAT: torch.stack([head_feat, tail_feat], dim=0)})
-            node_idx += 2
+        for idx, segment in enumerate(ref_segments):
+            head_node_idx, tail_node_idx = idx*2, idx*2+1
+            self._add_node(ref_segment=segment, node_type=NodeType.HEAD, idx=head_node_idx)
+            self._add_node(ref_segment=segment, node_type=NodeType.TAIL, idx=tail_node_idx)
+        
+        head_feats = torch.ones(n, self.config.n_node_features, dtype=torch.float32)
+        tail_feats = torch.ones(n, self.config.n_node_features, dtype=torch.float32)
+
+        for i, node_feature in enumerate(self.config.node_feature_set):
+            if node_feature in AUX_NODE_FEATURES:
+                continue
+            aln_stat = NODE_FEAT_TO_ALNSTAT[node_feature]
+            head_feats[:, i] = torch.tensor([s[aln_stat] for s in head_segment_stats], dtype=torch.float32)
+            tail_feats[:, i] = torch.tensor([s[aln_stat] for s in tail_segment_stats], dtype=torch.float32)
+
+        if NodeFeature.HT in self.config.node_feature_set:
+            ht_idx = self.config.node_feat2id[NodeFeature.HT]
+            head_feats[:, ht_idx] = 0
+            tail_feats[:, ht_idx] = 1
+
+        all_feats = torch.stack([head_feats, tail_feats], dim=1).view(2 * n, self.config.n_node_features)
+        ht_labels = torch.tensor([0, 1] * n, dtype=torch.int64) # TODO: this is redundant with the new node feature set(s) setup
+
+        self.dgl_graph.add_nodes(2 * n, data={HT: ht_labels, FEAT: all_feats})
 
     def add_segment_edges(self, ref_segments):
-        for segment in ref_segments:
-            head_id = self.node_to_id[GrooviNode.from_segment(segment, NodeType.HEAD)]
-            tail_id = self.node_to_id[GrooviNode.from_segment(segment, NodeType.TAIL)]
-            self._add_edges(head_id, tail_id, data={
-                FEAT_TYPE: torch.tensor([self.config.edge_feat2id[EdgeFeature.SEG]], dtype=torch.int64),
-                FEAT: torch.tensor([[1]], dtype=torch.float32)})
-            if abs(segment.start - segment.end) <= self.config.tiny_segment_threshold:
-                self._add_edges(head_id, tail_id, data={
-                    FEAT_TYPE: torch.tensor([self.config.edge_feat2id[EdgeFeature.IS_TINY_SEG]], dtype=torch.int64),
-                    FEAT: torch.tensor([[1]], dtype=torch.float32)})
+        head_ids = torch.tensor([self.node_to_id[GrooviNode.from_segment(s, NodeType.HEAD)] for s in ref_segments], dtype=torch.int64)
+        tail_ids = torch.tensor([self.node_to_id[GrooviNode.from_segment(s, NodeType.TAIL)] for s in ref_segments], dtype=torch.int64)
+        n = len(ref_segments)
+
+        self._add_edges(head_ids, tail_ids, data={
+            FEAT_TYPE: torch.full((n,), self.config.edge_feat2id[EdgeFeature.SEG], dtype=torch.int64),
+            FEAT: torch.ones((n, 1), dtype=torch.float32)
+        })
+
+        tiny_mask = torch.tensor([abs(s.start - s.end) <= self.config.tiny_segment_threshold for s in ref_segments])
+        if tiny_mask.any():
+            num_tiny_edges = tiny_mask.sum().item()
+            self._add_edges(head_ids[tiny_mask], tail_ids[tiny_mask], data={
+                FEAT_TYPE: torch.full((num_tiny_edges,), self.config.edge_feat2id[EdgeFeature.IS_TINY_SEG], dtype=torch.int64),
+                FEAT: torch.ones((num_tiny_edges, 1), dtype=torch.float32)
+            })
 
     def add_reference_edges(self, ref_segments):
-        for i in range(len(ref_segments) - 1):
-            seg1, seg2 = ref_segments[i], ref_segments[i + 1]
-            if seg1.chr != seg2.chr: continue
-            tail_id = self.node_to_id[GrooviNode.from_segment(seg1, NodeType.TAIL)]
-            head_id = self.node_to_id[GrooviNode.from_segment(seg2, NodeType.HEAD)]
-            self._add_edges(tail_id, head_id, data={
-                FEAT_TYPE: torch.tensor([self.config.edge_feat2id[EdgeFeature.REF]], dtype=torch.int64),
-                FEAT: torch.tensor([[1]], dtype=torch.float32)})
+        same_chr = [i for i in range(len(ref_segments) - 1) if ref_segments[i].chr == ref_segments[i + 1].chr]
+        if not same_chr:
+            return
+        tail_ids = torch.tensor([self.node_to_id[GrooviNode.from_segment(ref_segments[i], NodeType.TAIL)] for i in same_chr], dtype=torch.int64)
+        head_ids = torch.tensor([self.node_to_id[GrooviNode.from_segment(ref_segments[i + 1], NodeType.HEAD)] for i in same_chr], dtype=torch.int64)
+
+        n = len(same_chr)
+        self._add_edges(tail_ids, head_ids, data={
+            FEAT_TYPE: torch.full((n,), self.config.edge_feat2id[EdgeFeature.REF], dtype=torch.int64),
+            FEAT: torch.ones((n, 1), dtype=torch.float32)
+        })
 
     def add_novel_junction_edges(self, junctions):
+        src_ids, dst_ids, supports, feat_ids = [], [], [], []
+
         for j in junctions:
             node_type_src, node_type_dst = ORIENTATION_TO_NODE_TYPES[j.orientation]
             src_node_id = self.node_to_id[GrooviNode(j.chr1, j.pos1, node_type_src)]
             dst_node_id = self.node_to_id[GrooviNode(j.chr2, j.pos2, node_type_dst)]
-            edge_type_feat_id = self.config.edge_feat2id[ORIENTATION_TO_EDGE_TYPE[j.orientation]]
-            self._add_edges(src_node_id, dst_node_id, data={
-                FEAT_TYPE: torch.tensor([edge_type_feat_id], dtype=torch.int64),
-                FEAT: torch.tensor([[j.support]], dtype=torch.float32)})
-            self.candidate_src.append(src_node_id)
-            self.candidate_dst.append(dst_node_id)
-            self.candidate_support.append(j.support)
-            self.edges2source[(src_node_id, dst_node_id)] = [j.source] # TODO: update after clustering change
-        self.candidate_src = torch.tensor(self.candidate_src, dtype=torch.int64)
-        self.candidate_dst = torch.tensor(self.candidate_dst, dtype=torch.int64)
-        self.candidate_support = torch.tensor(self.candidate_support, dtype=torch.int64)
+            src_ids.append(src_node_id)
+            dst_ids.append(dst_node_id)
+            supports.append(j.support)
+            feat_ids.append(self.config.edge_feat2id[ORIENTATION_TO_EDGE_TYPE[j.orientation]])
+            self.edges2source[(src_node_id, dst_node_id)] = [j.source]
+
+        self.candidate_src = torch.tensor(src_ids, dtype=torch.int64)
+        self.candidate_dst = torch.tensor(dst_ids, dtype=torch.int64)
+        self.candidate_support = torch.tensor(supports, dtype=torch.int64) # TODO: check necessity of this int casting?
+
+        if src_ids:
+            self._add_edges(self.candidate_src, self.candidate_dst, data={
+                FEAT_TYPE: torch.tensor(feat_ids, dtype=torch.int64),
+                FEAT: self.candidate_support.float().unsqueeze(-1)
+            })
 
     def add_edge_features(self, split_by_sign=True):
         # edge feature: change in depth
@@ -167,22 +190,30 @@ class GrooviGraph:
 
     @staticmethod
     def build(config: Config) -> "GrooviGraph":
-        logging.info("Building Groovi graph...")
         signal_processing = SVSignalProcessor(config)
         junctions = signal_processing.extract_junctions(cluster=config.cluster)
         segments = signal_processing.extract_segments(junctions)
-        #torch.set_num_threads(1)
+
         groovi_graph = GrooviGraph(config)
-        groovi_graph.add_nodes(segments, node_stats=signal_processing.generate_stats(segments))
-        logging.info("Added nodes and node features")
+        logging.info("Collecting stats")
+        node_stats = signal_processing.generate_stats(segments)
+
+        logging.info("Adding nodes and node features")
+        groovi_graph.add_nodes(segments, node_stats=node_stats)
+
+        logging.info("Adding segment edges")
         groovi_graph.add_segment_edges(segments)
-        logging.info("Added segment edges")
+
+        logging.info("Adding reference edges")
         groovi_graph.add_reference_edges(segments)
-        logging.info("Added reference edges")
+
+        logging.info("Adding novel adjacency edges")
         groovi_graph.add_novel_junction_edges(junctions)
-        logging.info("Added novel adjacency edges")
+
+        logging.info("Filtering novel adjacency edges")
         groovi_graph.filter_candidate_edges(config.candidate_support_threshold)
-        logging.info("Finished graph construction")
+
+        logging.info("Graph construction complete")
         return groovi_graph
 
     def _add_edges(self, src, dst, data, directed=False):

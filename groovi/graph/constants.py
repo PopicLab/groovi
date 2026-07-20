@@ -4,6 +4,7 @@ from enum import Enum
 
 FEAT_TYPE = "feat_type"
 FEAT = "feat"
+HT = "HT"
 
 ################################################
 # Node Type Enums
