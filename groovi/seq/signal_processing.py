@@ -81,7 +81,13 @@ class SVSignalProcessor:
             labels = dbscan.fit_predict(data.pos)
             for label in np.unique(labels):
                 cluster_mask = labels == label
-                cluster_size = np.sum(data.support[cluster_mask])
+                cluster_size = None
+                if self.config.cluster_support_criteria == "max":
+                    cluster_size = np.max(data.support[cluster_mask])
+                elif self.config.cluster_support_criteria == "sum":
+                    cluster_size = np.sum(data.support[cluster_mask])
+                else:
+                    assert False, f"Unrecognized cluster_support_criteria: '{self.config.cluster_support_criteria}'"
                 if cluster_size < self.config.cluster_support_threshold: continue
                 orientations_uniq = np.unique(data.orientation[cluster_mask])
 

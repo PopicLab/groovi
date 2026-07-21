@@ -34,6 +34,7 @@ GENERATE_DEFAULTS = {
     'visualize_graphs': False,
     'cluster_radius': 20,
     'cluster_support_threshold': 1,
+    'cluster_support_criteria': 'max',
     'node_stats_buffer': 20,
     'node_stats_buffer_overlap': 0,
     'min_clipped_len': 10,
@@ -142,6 +143,9 @@ class Config:
     def validate_params(self):
         for param_name in set(self.required_params):
             assert hasattr(self, param_name), f"Parameter '{param_name}' is missing in the configuration"
+        if hasattr(self, "cluster_support_criteria"):
+            assert self.cluster_support_criteria in ("sum", "max"), \
+                f"'cluster_support_criteria' must be 'sum' or 'max', got '{self.cluster_support_criteria}'"
 
     def __str__(self):
         s = "==== Config ====\n\t"
