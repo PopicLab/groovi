@@ -34,7 +34,7 @@ GENERATE_DEFAULTS = {
     'visualize_graphs': False,
     'cluster_radius': 20,
     'cluster_support_threshold': 1,
-    'cluster_support_criteria': 'max',
+    'cluster_support_criteria': 'sum',
     'node_stats_buffer': 20,
     'node_stats_buffer_overlap': 0,
     'min_clipped_len': 10,
