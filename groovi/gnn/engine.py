@@ -24,7 +24,7 @@ class MetricTracker:
         for i, class_name in enumerate(self.config.classes):
             logging.info(f'[{epoch}][{tag}] {class_name}  | {precision[i]:.4f} | {recall[i]:.4f} | {f1[i]:.4f} ')
             for m, v in zip(["Precision", "Recall", "F1"], [precision[i], recall[i], f1[i]]):
-                writer.add_scalar(f"{tag}_{class_name}_{m}", v, epoch)
+                writer.add_scalar(f"{class_name}_{m}", v, epoch)
 
     def log_train_loss(self, epoch, training_loss, metrics):
         logging.info(f'======= Train    | Epoch {epoch} | {training_loss:.4f}')
@@ -54,13 +54,14 @@ class MetricTracker:
 def train(epoch, config, model, dataloader, optimizer, metric_tracker):
     model.train()
     total_loss = 0
+    loss_fn = torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))
     labels, predicted_classes = [], []
     for graph, src, dst, label in dataloader:
         graph, src, dst, label = (graph.to(config.device), src.to(config.device),
                                    dst.to(config.device), label.to(config.device))
         optimizer.zero_grad()
         logits = model(graph, src, dst).permute(0, 2, 1)
-        loss = torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))(logits, label)
+        loss = loss_fn(logits, label)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -71,8 +72,10 @@ def train(epoch, config, model, dataloader, optimizer, metric_tracker):
 
 def validate(epoch, config, model, dataloaders, metric_tracker):
     model.eval()
+    total_avg_loss = 0
+    loss_fn = torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))
     for idx, dataloader in enumerate(dataloaders):
-        total_loss = 0
+        dataset_loss = 0
         labels, predicted_classes = [], []
         with torch.no_grad():
             for graph, src, dst, label in dataloader:
@@ -80,11 +83,13 @@ def validate(epoch, config, model, dataloaders, metric_tracker):
                                         dst.to(config.device), label.to(config.device))
                 logits = model(graph, src, dst).permute(0, 2, 1)
                 predicted_classes.append(torch.argmax(logits, dim=1).flatten())
-                total_loss += torch.nn.CrossEntropyLoss(weight=config.label_weights.to(config.device))(logits, label).item()
+                dataset_loss += loss_fn(logits, label).item()
                 labels.append(label.flatten())
+        dataset_avg_loss = dataset_loss / len(dataloader)
+        total_avg_loss += dataset_avg_loss
         metrics = compute_metrics(config, labels, predicted_classes)
-        metric_tracker.log_validation_metrics(epoch, total_loss/ len(dataloader), metrics, idx)
-    return total_loss
+        metric_tracker.log_validation_metrics(epoch, dataset_avg_loss, metrics, idx)
+    return total_avg_loss / len(dataloaders)
 
 def compute_metrics(config, labels, predicted_classes):
     labels = torch.cat(labels).cpu().flatten()
