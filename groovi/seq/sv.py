@@ -197,6 +197,9 @@ class SVDB:
 
 @dataclass
 class Fragment:
+    """
+    Defines an operation of source [start, end), optionally, at position target_start.
+    """
     chrom: str
     start: int
     end: int

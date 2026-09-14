@@ -55,10 +55,11 @@ class TestStitching(TestCase):
         for rec in merged_recs:
             print(f'{rec.get_vcf_info()}')
 
+        # Intervals are half-open [start, stop), so sv_len is stop - start for every record
         correct_match_vcf = [
-            {'chrom': 'chr1', 'start': 1001, 'stop': 1399, 'sv_type': 'delINVdel', 'qual': 1, 'sv_len': 398,
+            {'chrom': 'chr1', 'start': 1001, 'stop': 1400, 'sv_type': 'delINVdel', 'qual': 1, 'sv_len': 399,
              'gt': (0, 0), 'op_type': 'delINVdel'},
-            {'chrom': 'chr1', 'start': 1000, 'stop': 1400, 'sv_type': 'dupINVdup', 'qual': 1, 'sv_len': 400,
+            {'chrom': 'chr1', 'start': 1000, 'stop': 1401, 'sv_type': 'dupINVdup', 'qual': 1, 'sv_len': 401,
              'gt': (0, 0), 'op_type': 'dupINVdup'},
             {'chrom': 'chr1', 'start': 120, 'stop': 130, 'sv_type': 'dDUP', 'qual': 1, 'sv_len': 10, 'target': 110,
              'gt': (0, 0), 'op_type': 'DUP'},
@@ -68,7 +69,7 @@ class TestStitching(TestCase):
              'gt': (0, 0), 'op_type': 'INV_dDUP'},
             {'chrom': 'chr1', 'start': 100, 'stop': 119, 'sv_type': 'nrTRA', 'qual': 1, 'sv_len': 19, 'target': 10,
              'gt': (0, 0), 'op_type': 'nrTRA'},
-            {'chrom': 'chr1', 'start': 11, 'stop': 19, 'sv_type': 'DEL', 'qual': 1, 'sv_len': 8, 'gt': (0, 0), 'op_type': 'CUT'}
+            {'chrom': 'chr1', 'start': 11, 'stop': 20, 'sv_type': 'DEL', 'qual': 1, 'sv_len': 9, 'gt': (0, 0), 'op_type': 'CUT'}
         ]
 
         self.assertEqual(sorted(correct_match_vcf, key=lambda x: (x['start'], x['stop'], x['sv_type'])),
@@ -163,11 +164,12 @@ class TestComplexSV(TestCase):
         assert len(bed_info) == 1
         self.assertEqual('chr1', bed_info[0]['chrom'])
         self.assertEqual(5, bed_info[0]['source_s'])
-        self.assertEqual(15, bed_info[0]['source_e'])
+        self.assertEqual(16, bed_info[0]['source_e'])
         self.assertEqual(None, bed_info[0]['target_s'])
         self.assertEqual(None, bed_info[0]['target_e'])
         self.assertEqual('DUP', bed_info[0]['transform'])
-        self.assertEqual(10, bed_info[0]['sv_len'])
+        # [5, 16) spans the 11 duplicated bases 5..15
+        self.assertEqual(11, bed_info[0]['sv_len'])
         self.assertEqual('DUP', bed_info[0]['sv_type'])
 
         csv = ComplexSV(
@@ -208,10 +210,10 @@ class TestComplexSV(TestCase):
 
         self.assertEqual(1, vcf_info['chrom'])
         self.assertEqual(6, vcf_info['start'])
-        self.assertEqual(14, vcf_info['stop'])
+        self.assertEqual(15, vcf_info['stop'])
         self.assertEqual('DEL', vcf_info['sv_type'])
         self.assertEqual(40, vcf_info['qual'])
-        self.assertEqual(8, vcf_info['sv_len'])
+        self.assertEqual(9, vcf_info['sv_len'])
 
         # Test dispersion SVs
         for dispersion_sv in ['dDUP', 'INV_dDUP']:
@@ -237,7 +239,7 @@ class TestComplexSV(TestCase):
         )
         vcf_info = csv.get_vcf_info()
         self.assertEqual(6, vcf_info['start'])
-        self.assertEqual(19, vcf_info['stop'])
+        self.assertEqual(20, vcf_info['stop'])
 
 
     def test_prioritize_evidence(self):
@@ -268,15 +270,16 @@ class TestComplexSV(TestCase):
 
 class TestSVTypes(TestCase):
 
-    def run_pipeline(self, input_recs, expected_calls, expected_fragments, expected_grammars):
+    def run_pipeline(self, input_recs, expected_calls, expected_fragments, expected_grammars, tolerance=0):
         """
         Generic test to run stitching on a set of input records, checking that the correct calls are returned.
 
-        :param input_recs: list of dicts containing fields 'start', 'stop', 'id', and 'qual'
+        :param input_recs: list of dicts containing fields 'start', 'stop', 'id', 'qual', and optional 'evidence'
         :param expected_calls: list of dicts containing fields 'start', 'stop', 'sv_type', 'sv_len',
                                 'target', and info 'fragments'
                 Expected bp locations are zero indexed for both the input_recs and expected_calls,
                 and this function will convert them to 1-indexed for comparison with VCF format output
+        :param tolerance: breakpoint tolerance for matching, needed to stitch edges with imprecise coordinates
         """
         recs = []
         for rec_data in input_recs:
@@ -285,11 +288,12 @@ class TestSVTypes(TestCase):
                                pos1=rec_data['start'],
                                chr2='chr1',
                                pos2=rec_data['stop'],
-                               qual=rec_data['qual'])
+                               qual=rec_data['qual'],
+                               evidence=rec_data.get('evidence'))
 
             recs.append(rec)
 
-        merged_recs = find_matches(recs)
+        merged_recs = find_matches(recs, tolerance=tolerance)
         # filtered_recs = filter_merged_recs(merged_recs)
         print(merged_recs)
 
@@ -317,9 +321,9 @@ class TestSVTypes(TestCase):
         DEL is a singleton record directly linking the start of the deletion to the end
         """
         data = [{'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'DEL'}]
-        expected_result = [{'start': 6, 'stop': 14, 'sv_type': 'DEL', 'sv_len': 8}]
+        expected_result = [{'start': 6, 'stop': 15, 'sv_type': 'DEL', 'sv_len': 9}]
         expected_fragments = [
-            (6, 14, None, None, 'CUT')
+            (6, 15, None, None, 'CUT')
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['A->'])
 
@@ -329,9 +333,9 @@ class TestSVTypes(TestCase):
         """
         data = [{'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'INV_A'},
                 {'start': 6, 'stop': 16, 'qual': 0.9, 'id': 'INV_B'}]
-        expected_result = [{'start': 6, 'stop': 15, 'sv_type': 'INV', 'sv_len': 9}]
+        expected_result = [{'start': 6, 'stop': 16, 'sv_type': 'INV', 'sv_len': 10}]
         expected_fragments = [
-            (6, 15, None, None, 'INV')
+            (6, 16, None, None, 'INV')
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['A->a'])
 
@@ -340,9 +344,9 @@ class TestSVTypes(TestCase):
         DUP is a singleton record indicating the region that is repeated once
         """
         data = [{'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'DUP'}]
-        expected_result = [{'start': 5, 'stop': 15, 'sv_type': 'DUP', 'sv_len': 10}]
+        expected_result = [{'start': 5, 'stop': 16, 'sv_type': 'DUP', 'sv_len': 11}]
         expected_fragments = [
-            (5, 15, None, None, 'DUP')
+            (5, 16, None, None, 'DUP')
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['A->AA'])
 
@@ -355,10 +359,10 @@ class TestSVTypes(TestCase):
                 {'start': 6, 'stop': 16, 'qual': 0.9, 'id': 'DUP_INV_C'},
                 {'start': 6, 'stop': 15, 'qual': 0.9, 'id': 'DUP_INV_B'},
                 ]
-        expected_result = [{'start': 6, 'stop': 15, 'sv_type': 'DUP_INV', 'sv_len': 9}]
+        expected_result = [{'start': 6, 'stop': 16, 'sv_type': 'DUP_INV', 'sv_len': 10}]
         expected_fragments = [
-            (6, 15, None, None, 'INV'),
-            (6, 15, 15, 16, 'COPYinv-PASTE')
+            (6, 16, None, None, 'INV'),
+            (6, 16, 16, 17, 'COPYinv-PASTE')
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['A->aa'])
 
@@ -488,15 +492,15 @@ class TestSVTypes(TestCase):
         region is deleted
         """
         data = [
-            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdel_A'},
-            {'start': 2, 'stop': 30, 'qual': 100, 'id': 'INVdel_B'},
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdel_A', 'evidence': 30},
+            {'start': 2, 'stop': 30, 'qual': 100, 'id': 'INVdel_B', 'evidence': 10},
         ]
         expected_result = [
-            {'start': 2, 'stop': 29, 'sv_type': 'INVdel', 'sv_len': 27},
+            {'start': 2, 'stop': 31, 'sv_type': 'INVdel', 'sv_len': 29},
         ]
         expected_fragments = [
-            (2, 20, None, None, 'INV'),
-            (21, 29, None, None, 'CUT')
+            (2, 21, None, None, 'INV'),
+            (21, 31, None, None, 'CUT')
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['AB->a'])
 
@@ -506,15 +510,15 @@ class TestSVTypes(TestCase):
         and the preceding region is deleted
         """
         data = [
-            {'start': 1, 'stop': 29, 'qual': 100, 'id': 'delINV_A'},
-            {'start': 15, 'stop': 30, 'qual': 100, 'id': 'delINV_B'},
+            {'start': 1, 'stop': 29, 'qual': 100, 'id': 'delINV_A', 'evidence': 30},
+            {'start': 15, 'stop': 30, 'qual': 100, 'id': 'delINV_B', 'evidence': 10},
         ]
         expected_result = [
-            {'start': 2, 'stop': 29, 'sv_type': 'delINV', 'sv_len': 27},
+            {'start': 1, 'stop': 30, 'sv_type': 'delINV', 'sv_len': 29},
         ]
         expected_fragments = [
-            (2, 14, None, None, 'CUT'),
-            (15, 29, None, None, 'INV'),
+            (1, 16, None, None, 'CUT'),
+            (16, 30, None, None, 'INV'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['AB->b'])
 
@@ -523,36 +527,80 @@ class TestSVTypes(TestCase):
         INVdup has A enclosing B, adjacent on the left, with all of A being a variant,
         but has fragments that need to be checked.
         """
+        # Exact coordinates: both edges agree on the left boundary, so evidence does not change the layout
         data = [
-            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdup_A'},
-            {'start': 2, 'stop': 10, 'qual': 100, 'id': 'INVdup_B'},
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdup_A', 'evidence': 30},
+            {'start': 2, 'stop': 10, 'qual': 100, 'id': 'INVdup_B', 'evidence': 10},
         ]
         expected_result = [
-            {'start': 2, 'stop': 20, 'sv_type': 'INVdup', 'sv_len': 18},
+            {'start': 2, 'stop': 21, 'sv_type': 'INVdup', 'sv_len': 19},
         ]
         expected_fragments = [
-            # (2, 9, None, None, 'INV'),  # Removed to allow for INV_dDUP equivalence
-            (10, 20, 1, 2, 'COPYinv-PASTE'),
+            (2, 10, None, None, 'INV'),
+            (10, 21, 2, 3, 'COPYinv-PASTE'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['AB->baB'])
+
+        # B's start is imprecise. With A better supported, A.pos1 + 1 recovers the true left boundary at 2
+        noisy_data = [
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdup_A', 'evidence': 30},
+            {'start': 5, 'stop': 10, 'qual': 100, 'id': 'INVdup_B', 'evidence': 10},
+        ]
+        self.run_pipeline(noisy_data, expected_result, expected_fragments, ['AB->baB'], tolerance=3)
+
+        # Same imprecise edges, but now B is better supported, so its start defines the boundary instead
+        noisy_data = [
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INVdup_A', 'evidence': 10},
+            {'start': 5, 'stop': 10, 'qual': 100, 'id': 'INVdup_B', 'evidence': 30},
+        ]
+        expected_result = [
+            {'start': 5, 'stop': 21, 'sv_type': 'INVdup', 'sv_len': 16},
+        ]
+        expected_fragments = [
+            (5, 10, None, None, 'INV'),
+            (10, 21, 5, 6, 'COPYinv-PASTE'),
+        ]
+        self.run_pipeline(noisy_data, expected_result, expected_fragments, ['AB->baB'], tolerance=3)
 
     def test_dupINV(self):
         """
         dupINV has A enclosing B adjacent on the right, with all of A being a variant,
         but has fragments that need to be checked.
         """
+        # Exact coordinates: both edges agree on the right boundary, so evidence does not change the layout
         data = [
-            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'dupINV_A'},
-            {'start': 10, 'stop': 19, 'qual': 100, 'id': 'dupINV_B'},
+            {'start': 1, 'stop': 20, 'qual': 100, 'id': 'dupINV_A', 'evidence': 30},
+            {'start': 10, 'stop': 19, 'qual': 100, 'id': 'dupINV_B', 'evidence': 10},
         ]
         expected_result = [
-            {'start': 1, 'stop': 19, 'sv_type': 'dupINV', 'sv_len': 18},
+            {'start': 1, 'stop': 20, 'sv_type': 'dupINV', 'sv_len': 19},
         ]
         expected_fragments = [
-            (1, 10, 19, 20, 'COPYinv-PASTE'),
-            # (11, 19, None, None, 'INV')  # Removed to allow for INV_dDUP equivalence
+            (1, 11, 20, 21, 'COPYinv-PASTE'),
+            (11, 20, None, None, 'INV'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['AB->Aba'])
+
+        # A's end is imprecise. With B better supported, B.pos2 + 1 recovers the true right boundary at 20
+        noisy_data = [
+            {'start': 1, 'stop': 23, 'qual': 100, 'id': 'dupINV_A', 'evidence': 10},
+            {'start': 10, 'stop': 19, 'qual': 100, 'id': 'dupINV_B', 'evidence': 30},
+        ]
+        self.run_pipeline(noisy_data, expected_result, expected_fragments, ['AB->Aba'], tolerance=3)
+
+        # Same imprecise edges, but now A is better supported, so its end defines the boundary instead
+        noisy_data = [
+            {'start': 1, 'stop': 23, 'qual': 100, 'id': 'dupINV_A', 'evidence': 30},
+            {'start': 10, 'stop': 19, 'qual': 100, 'id': 'dupINV_B', 'evidence': 10},
+        ]
+        expected_result = [
+            {'start': 1, 'stop': 23, 'sv_type': 'dupINV', 'sv_len': 22},
+        ]
+        expected_fragments = [
+            (1, 11, 23, 24, 'COPYinv-PASTE'),
+            (11, 23, None, None, 'INV'),
+        ]
+        self.run_pipeline(noisy_data, expected_result, expected_fragments, ['AB->Aba'], tolerance=3)
 
     def test_dupINVdel(self):
         """
@@ -563,12 +611,12 @@ class TestSVTypes(TestCase):
             {'start': 5, 'stop': 15, 'qual': 100, 'id': 'dupINVdel_B'},
         ]
         expected_result = [
-            {'start': 1, 'stop': 19, 'sv_type': 'dupINVdel', 'sv_len': 18},
+            {'start': 1, 'stop': 20, 'sv_type': 'dupINVdel', 'sv_len': 19},
         ]
         expected_fragments = [
-            (1, 5, 15, 16, 'COPYinv-PASTE'),
-            (6, 15, None, None, 'INV'),
-            (16, 19, None, None, 'CUT'),
+            (1, 6, 16, 17, 'COPYinv-PASTE'),
+            (6, 16, None, None, 'INV'),
+            (16, 20, None, None, 'CUT'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['ABC->Aba'])
 
@@ -582,12 +630,12 @@ class TestSVTypes(TestCase):
             {'start': 5, 'stop': 15, 'qual': 100, 'id': 'delINVdup_B'},
         ]
         expected_result = [
-            {'start': 2, 'stop': 20, 'sv_type': 'delINVdup', 'sv_len': 18},
+            {'start': 2, 'stop': 21, 'sv_type': 'delINVdup', 'sv_len': 19},
         ]
         expected_fragments = [
-            (2, 4, None, None, 'CUT'),
-            (5, 14, None, None, 'INV'),
-            (15, 20, 1, 2, 'COPYinv-PASTE'),
+            (2, 5, None, None, 'CUT'),
+            (5, 15, None, None, 'INV'),
+            (15, 21, 2, 3, 'COPYinv-PASTE'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['ABC->cbC'])
 
@@ -600,12 +648,12 @@ class TestSVTypes(TestCase):
             {'start': 5, 'stop': 25, 'qual': 100, 'id': 'delINVdel_B'},
         ]
         expected_result = [
-            {'start': 2, 'stop': 24, 'sv_type': 'delINVdel', 'sv_len': 22},
+            {'start': 2, 'stop': 25, 'sv_type': 'delINVdel', 'sv_len': 23},
         ]
         expected_fragments = [
-            (2, 4, None, None, 'CUT'),
-            (5, 20, None, None, 'INV'),
-            (21, 24, None, None, 'CUT'),
+            (2, 5, None, None, 'CUT'),
+            (5, 21, None, None, 'INV'),
+            (21, 25, None, None, 'CUT'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['ABC->b'])
 
@@ -618,11 +666,11 @@ class TestSVTypes(TestCase):
             {'start': 5, 'stop': 25, 'qual': 100, 'id': 'dupINVdup_B'},
         ]
         expected_result = [
-            {'start': 1, 'stop': 25, 'sv_type': 'dupINVdup', 'sv_len': 24},
+            {'start': 1, 'stop': 26, 'sv_type': 'dupINVdup', 'sv_len': 25},
         ]
         expected_fragments = [
-            (1, 5, 19, 20, 'COPYinv-PASTE'),
-            (6, 19, None, None, 'INV'),
-            (20, 25, 5, 6, 'COPYinv-PASTE'),
+            (1, 6, 20, 21, 'COPYinv-PASTE'),
+            (6, 20, None, None, 'INV'),
+            (20, 26, 6, 7, 'COPYinv-PASTE'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['ABC->AcbaC'])

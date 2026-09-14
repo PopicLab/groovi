@@ -36,7 +36,7 @@ class ComplexSV:
             self.grammar = sv_registry_info['grammar']
 
         self.fragments = sv_registry_info['fragment_fn'](self)
-
+        self.validated = all(fn(self) for fn in sv_registry_info['validation_fns'])
 
     def __str__(self):
         return repr((self.sv_type, self.chrom, self.qual, self.records))
@@ -73,14 +73,14 @@ class ComplexSV:
             })
         return bed_recs
 
+    def start_stop_fn(self):
+        return min(frag.start for frag in self.fragments), max(frag.end for frag in self.fragments)
+
     def get_vcf_info(self):
         """
         Creates a single VCF record for the SV.
         """
-        start, stop = None, None
-        start_stop_fn = SV_REGISTRY[self.sv_type].get('start_stop_fn', None)
-        if start_stop_fn:
-            start, stop = start_stop_fn(self)
+        start, stop = self.start_stop_fn()
 
         vcf_info = {'chrom': self.chrom,
                     'start': start,
@@ -95,7 +95,7 @@ class ComplexSV:
 
         return vcf_info
 
-def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
+def find_matches(recs: List[SVBreakpoint], tolerance: int=0) -> List[ComplexSV]:
     """
     Finds all matches for a given SV type by running a pipelined search.
     This avoids an O(N^d) search by finding matches in a linear sequence.
@@ -128,10 +128,9 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
     for sv_type, sv_info in SV_REGISTRY.items():
         if sv_type not in observed_types:
             continue
+        logging.info(f"Finding stitch matches for {sv_type}")
 
-        print(f"Finding matches for {sv_type}")
-
-        candidates = []
+        candidates: list[IntervalTree] = []
         for rec_type in sv_info.get('candidates', []):
             if isinstance(rec_type, str):
                 candidates.append(trees[rec_type])
@@ -157,8 +156,7 @@ def find_matches(recs: List[Any], tolerance: int=0) -> List[Any]:
                 logging.info(f'Filtered {len(matches) - len(single_chrom)} non-dispersions matched across contigs')
             matches = single_chrom
 
-        csvs = [ComplexSV.from_records(recs) for recs in matches]
-        all_matches.extend(csvs)
+        all_matches.extend([ComplexSV.from_records(recs) for recs in matches])
 
     return all_matches
 
@@ -175,7 +173,7 @@ def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=F
         key_func = lambda csv: -csv.qual
 
     for rec in sorted(merged_recs, key=key_func):
-        occupied_intervals = [(frag.start, frag.end + 1) for frag in rec.fragments]
+        occupied_intervals = [(frag.start, frag.end) for frag in rec.fragments]
         occupied_intervals += [(frag.target_start, frag.target_end) for frag in rec.fragments if frag.target_start]
 
         if rec.chrom not in chrom_intervals or \
@@ -183,8 +181,6 @@ def filter_merged_recs(merged_recs: List[ComplexSV], prioritize_evidence: bool=F
             for occupied_interval in occupied_intervals:
                 chrom_intervals[rec.chrom].addi(*sorted(occupied_interval))
             filtered_recs.append(rec)
-        else:
-            continue
     return filtered_recs
 
 
@@ -275,13 +271,11 @@ def deduplicate_svs(svs: List['ComplexSV'], overlap_frac: float = 0.7, size_sim:
         if keep:
             tree.addi(anchor_frag.start, anchor_end_padded, data=(sv, sorted_frags))
             results.append(sv)
-        else:
-            logging.debug("FILTER deduplicate_svs: %s" % sv)
 
     return results
 
 
-def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=False):
+def export_callset_to_vcf(filtered_recs: list[ComplexSV], output_path, contigs, sep_frag_recs=False) -> None:
     """
     Export function to write list of post-(merge+filter) ComplexSV objects to VCF
     """
@@ -311,7 +305,8 @@ def export_callset_to_vcf(filtered_recs, output_path, contigs, sep_frag_recs=Fal
             for frag_id, frag in enumerate(rec.fragments):
                 # Reorder fragment start and end if tolerance allowed stitching of misaligned edges
                 frag_start, frag_end = sorted([frag.start, frag.end])
-                info_field = {'OP_TYPE': frag.operation, 'SVLEN': frag_end - frag_start,
+                info_field = {'OP_TYPE': frag.operation, 
+                              'SVLEN': frag_end - frag_start, # NOTE: induces pysam bug where end position is pushed by +1 when a predefined ALT is recognized
                               'GRAMMAR': grammar, 'SVID': f"sv{parent_id}",
                               'SVTYPE': vcf_info_dict['sv_type']}
                 if frag.target_start:
@@ -428,45 +423,32 @@ def generate_merged_callset(input_recs: List[SVBreakpoint], config: DiscoverConf
         input_recs = cleaned_recs
 
 
-    # merged_recs = dispatch_match_functions(input_recs, threshold=breakpoint_threshold)
-    merged_recs = find_matches(input_recs, tolerance=config.breakpoint_threshold)
+    merged_recs: list[ComplexSV] = find_matches(input_recs, tolerance=config.breakpoint_threshold)
+    logging.info(f'Found {len(merged_recs)} stitched SVs')
 
-    # filter stitched SVs by minimum length
-
-    stitched_small_recs = 0
-    stitched_large_recs = 0
-
+    # Filter by size and fragment validity
     filtered_recs = []
     for csv in merged_recs:
         sv_lengths = [frag.end - frag.start for frag in csv.fragments]
         total_length = sum(sv_lengths)
         smallest_fragment = min(sv_lengths)
 
-        if config.minimum_length <= total_length <= config.maximum_length and smallest_fragment >= config.minimum_fragment_length:
+        if config.minimum_length <= total_length <= config.maximum_length \
+                and smallest_fragment >= config.minimum_fragment_length and csv.validated:
             filtered_recs.append(csv)
-        else:
-            if total_length < config.minimum_length or smallest_fragment < config.minimum_fragment_length:
-                stitched_small_recs += 1
-            if total_length > config.maximum_length:
-                stitched_large_recs += 1
+    logging.info(f'Size and validity filtering to {len(filtered_recs)} stitched SVs')
 
     if config.complex_sv_unfiltered_file_path:
         export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_unfiltered_file_path,
                               contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
 
-    logging.info(f'Removed {stitched_small_recs} stitched SVs with total length below minimum {config.minimum_length}.')
-    logging.info(f'Removed {stitched_large_recs} stitched SVs with total length above maximum {config.maximum_length}.')
-
-    logging.info(f'Found {len(merged_recs)} stitched SVs')
-
     if config.deduplicate_calls:
         filtered_recs = deduplicate_svs(filtered_recs, config.duplication_threshold)
-        print(f'Deduplication results in {len(filtered_recs)} remaining stitched SVs')
+        logging.info(f'Deduplication filtering results in {len(filtered_recs)} remaining stitched SVs')
 
     if config.filter_overlaps:
         filtered_recs = filter_merged_recs(filtered_recs, config.prioritize_evidence)
-        print(f'Filtered to {len(filtered_recs)} stitched SVs')
-
+        logging.info(f'Overlap filtering to in {len(filtered_recs)} stitched SVs')
 
     export_callset_to_vcf(filtered_recs, output_path=config.complex_sv_vcf_file_path,
                           contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)

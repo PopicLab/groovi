@@ -3,6 +3,7 @@ import numpy as np
 import random
 import dgl
 
+
 def seed_everything(seed: int):
     random.seed(seed)
     np.random.seed(seed)

@@ -27,6 +27,7 @@ SHARED_DEFAULTS = {
     'node_feature_norm': "LOG1P",
     'edge_feature_norm': "RATIO",
     "features_to_mask": [],
+    "use_cached_graphs": False
 }
 
 GENERATE_DEFAULTS = {
@@ -81,6 +82,7 @@ TRAIN_ENGINE_DEFAULTS = {
 }
 
 STITCHING_DEFAULTS = {
+    'cluster_support_threshold': 2, # overrides default generation cluster_support_threshold
     "breakpoint_threshold": 500,
     "sep_frag_recs": True,
     "unmatched_edge_file": None,
