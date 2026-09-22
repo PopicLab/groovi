@@ -235,7 +235,7 @@ def dispersion_source_target(csv):
     return source_start, source_end, target, target_chrom
 
 # Validation methods
-def validate_non_inter_chromosomal(csv) -> bool:
+def validate_non_inter_chromosomal(csv):
     """
     Checks every fragment with a target is on the SV's chromosome
     """
@@ -244,27 +244,27 @@ def validate_non_inter_chromosomal(csv) -> bool:
     chrom = csv.fragments[0].chrom
     return all(chrom == frag.chrom == frag.target_chrom for frag in csv.fragments if frag.target_chrom)
 
-def validate_positive_lengths(csv) -> bool:
+def validate_positive_lengths(csv):
     """
     Checks every fragment interval is strictly positive in length
     """
     return all(frag.end > frag.start for frag in csv.fragments)
 
-def validate_contiguous_segments(csv) -> bool:
+def validate_contiguous_segments(csv):
     """
     Checks fragment intervals form a contiguous sequence of segments
     """
     intervals = sorted(set((frag.start, frag.end) for frag in csv.fragments))
     return all(end == next_start for (_, end), (next_start, _) in zip(intervals, intervals[1:]))
 
-def validate_targets_on_breakpoints(csv) -> bool:
+def validate_targets_on_breakpoints(csv):
     """
     Checks every target start lands on a fragment interval boundary, for non dispersed SVs
     """
     breakpoints = {coord for frag in csv.fragments for coord in (frag.start, frag.end)}
     return all(frag.target_start in breakpoints for frag in csv.fragments if frag.target_start)
 
-def validate_no_split_segments(csv) -> bool:
+def validate_no_split_segments(csv):
     """
     Checks no target lands strictly inside a fragment's interval, implying a split segment
     """

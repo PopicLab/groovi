@@ -100,6 +100,9 @@ class SVBreakpoint:
             sv.source = rec.info['SOURCE']
         return sv
 
+    def __repr__(self):
+        return f"SVBreakpoint({self.chr1}:{self.pos1}-{self.chr2}:{self.pos2} | type={self.type})"
+
     @classmethod
     def from_junction(cls, junction):
         sv = SVBreakpoint("BND", junction.chr1, junction.pos1, junction.chr2, junction.pos2, 0,

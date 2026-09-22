@@ -8,6 +8,7 @@ import shutil
 import sys
 import torch
 import yaml
+from groovi.utils.logging import create_logger
 from groovi.utils.utils import seed_everything, limit_cores
 from groovi.graph.constants import *
 from groovi.graph.transforms import *
@@ -123,6 +124,9 @@ class Config:
         self.log_file = os.path.join(self.log_dir, 'main.log')
         logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.getLevelName(self.logging_level),
                             handlers=[logging.FileHandler(self.log_file, mode='w'), logging.StreamHandler(sys.stdout)])
+
+        # -------- additional logs
+        self.stitched_filter_logger = create_logger("post_stitching_filter", os.path.join(self.log_dir, 'post_stitching_filter.log'), log_to_console=False)
 
         # -------- setup shared data/model configs
         self.classes = groovi.seq.sv.TYPE_SET_TO_TYPES[groovi.seq.sv.SVTypeSet[self.class_set]]
