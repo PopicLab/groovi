@@ -43,6 +43,7 @@ GENERATE_DEFAULTS = {
     'min_discord_len': 40,
     'min_mapq': 10,
     'max_discordance': 0.02,
+    'patch_alns': True,
     'recover_ins': True,
     'recover_clipping': True,
     'recover_subfrag': True,

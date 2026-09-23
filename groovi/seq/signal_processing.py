@@ -39,16 +39,18 @@ class SVSignalProcessor:
         self.cues_config.run_recovery_missing_segments = config.recover_missing_segs
         self.cues_config.max_alns_to_process = np.iinfo(np.int32).max
         self.cues_config.record_inter_chromosomal_junctions = config.interchrom
+        self.cues_config.record_aln_patches = config.patch_alns
         self.cues_config.n_threads = self.config.n_cpus
         self.cues_config.aln_batch_size = self.config.aln_batch_size
         self.cues_config.max_seg_alns_to_fetch = 200
         self.cues = Cues(self.cues_config)
         self.stats_to_collect = set(NODE_FEAT_TO_ALNSTAT[f] for f in self.config.node_aln_feature_set)
-
+        self.cues_index = None
 
     def extract_junctions(self, cluster=True):
         if not self.config.use_cached_junctions:
-            junctions = self.cues.collect_bkps_from_bam(self.config.bam).junctions
+            self.cues_index = self.cues.collect_bkps_from_bam(self.config.bam)
+            junctions = self.cues_index.junctions
             logging.info("Total number of junctions: %d ", len(junctions))
             junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
             io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
@@ -160,8 +162,11 @@ class SVSignalProcessor:
                                                 max(segment.end - self.config.node_stats_buffer, segment.start),
                                                 min(segment.end + 1 + self.config.node_stats_buffer_overlap,
                                                     self.config.fai_index.get_chr_by_name(segment.chr).len)))
-        stats = (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect),
-                self.cues.collect_stats(self.config.bam, tail_segment_rois, self.stats_to_collect))
+        aln_patch = []
+        if self.cues_index: 
+            aln_patch = self.cues_index.aln_patches
+        stats = (self.cues.collect_stats(self.config.bam, head_segment_rois, self.stats_to_collect, aln_patch),
+                self.cues.collect_stats(self.config.bam, tail_segment_rois, self.stats_to_collect, aln_patch))
         logging.info("Finished node stats collection")
         return stats
 
