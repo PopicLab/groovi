@@ -222,7 +222,8 @@ class SVDB:
 @dataclass
 class Fragment:
     """
-    Defines an operation of source [start, end), optionally, at position target_start.
+    Defines an operation of source [start, end), optionally, at position target_start, ordered by insord among
+    insertions at the same target.
     """
     chrom: str
     start: int
@@ -231,6 +232,7 @@ class Fragment:
     target_chrom: str=None
     target_start: int=None
     target_end: int=None
+    insord: int=None
 
     def __post_init__(self):
         # force ends to be at least one position after start

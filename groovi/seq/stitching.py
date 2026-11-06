@@ -1,5 +1,6 @@
 from pysam import VariantFile, VariantRecord
 from collections import defaultdict, Counter
+from copy import copy
 from intervaltree import Interval, IntervalTree
 import pysam
 
@@ -44,6 +45,14 @@ class ComplexSV:
             self.grammar = self.grammar[self.direction]
 
         self.validated = all(fn(self) for fn in sv_registry_info['validation_fns'])
+
+        # every grammar the stitched breakpoints admit, as (grammar, fragments); alternatives must pass validation
+        self.grammars = [(self.grammar, self.fragments)]
+        for grammar, fragments in sv_registry_info.get('alternative_grammars_fn', lambda csv: [])(self):
+            alternative = copy(self)
+            alternative.fragments = fragments
+            if all(fn(alternative) for fn in sv_registry_info['validation_fns']):
+                self.grammars.append((grammar, fragments))
 
     def __str__(self):
         return repr((self.sv_type, self.chrom, self.qual, self.records))
@@ -300,48 +309,63 @@ def export_callset_to_vcf(filtered_svs, output_path, contigs, sep_frag_recs=Fals
     header.info.add('TARGET', number=1, type='Integer', description="Target location for dispersion or translocation")
     header.info.add('TARGET_CHROM', number=1, type='String', description="Target chromosome for a dispersed duplication or translocation")
     header.info.add('FRAGMENT_INTERVALS', number=1, type='String',
-                    description="Fragment intervals for SV components")
-    header.info.add('GRAMMAR', number=1, type='String', description="Grammar of the structural variant")
+                    description="Fragment intervals for SV components; per grammar, in GRAMMAR order and separated by |")
+    header.info.add('GRAMMAR', number=1, type='String',
+                    description="Grammar of the structural variant; in single-line records, alternative grammars separated by |")
+    header.info.add('GRAMMAR_ID', number=1, type='Integer',
+                    description="Grammar this record belongs to, for an SV with alternative grammars of the same breakpoints")
     header.formats.add('GT', number=1, type='String', description="Genotype")
     header.add_sample("SAMPLE")
 
     vcf_out_file = VariantFile(output_path, 'w', header=header)
     for parent_id, sv in enumerate(filtered_svs):
         vcf_info_dict = sv.get_vcf_info()
-        grammar = sv.grammar
+        ambiguous = len(sv.grammars) > 1
         if sep_frag_recs:
-            # Multi-record SV broken into fragments
-            for frag_id, frag in enumerate(sv.fragments):
-                # Reorder fragment start and end if tolerance allowed stitching of misaligned edges
-                frag_start, frag_end = sorted([frag.start, frag.end])
-                info_field = {'OP_TYPE': frag.operation, 
-                              'SVLEN': frag_end - frag_start, # NOTE: induces pysam bug where end position is pushed by +1 when a predefined ALT is recognized
-                              'GRAMMAR': grammar, 'SVID': f"sv{parent_id}",
-                              'SVTYPE': vcf_info_dict['sv_type']}
-                if frag.target_start:
-                    info_field.update({'TARGET': frag.target_start, 'TARGET_CHROM': frag.target_chrom})
+            # Multi-record SV broken into fragments; every grammar of an SV with alternatives, tagged GRAMMAR_ID
+            for grammar_id, (grammar, fragments) in enumerate(sv.grammars):
+                for frag_id, frag in enumerate(fragments):
+                    # Reorder fragment start and end if tolerance allowed stitching of misaligned edges
+                    frag_start, frag_end = sorted([frag.start, frag.end])
+                    info_field = {'OP_TYPE': frag.operation,
+                                  'SVLEN': frag_end - frag_start, # NOTE: induces pysam bug where end position is pushed by +1 when a predefined ALT is recognized
+                                  'GRAMMAR': grammar, 'SVID': f"sv{parent_id}",
+                                  'SVTYPE': vcf_info_dict['sv_type']}
+                    if frag.target_start:
+                        info_field.update({'TARGET': frag.target_start, 'TARGET_CHROM': frag.target_chrom})
+                    if frag.insord is not None:
+                        info_field['INSORD'] = frag.insord
+                    if ambiguous:
+                        info_field['GRAMMAR_ID'] = grammar_id
 
-                vcf_record = vcf_out_file.header.new_record(contig=frag.chrom,
-                                                            start=frag_start,
-                                                            stop=frag_end,
-                                                            alleles=['N', '<%s>' % frag.operation],
-                                                            id=f"sv{parent_id}_{frag_id}",
-                                                            info=info_field,
-                                                            qual=vcf_info_dict['qual'], filter='PASS',
-                                                            samples=[{'GT': vcf_info_dict['gt']}])
-                vcf_out_file.write(vcf_record)
+                    vcf_record = vcf_out_file.header.new_record(contig=frag.chrom,
+                                                                start=frag_start,
+                                                                stop=frag_end,
+                                                                alleles=['N', '<%s>' % frag.operation],
+                                                                id=f"sv{parent_id}_g{grammar_id}_{frag_id}" if ambiguous
+                                                                else f"sv{parent_id}_{frag_id}",
+                                                                info=info_field,
+                                                                qual=vcf_info_dict['qual'], filter='PASS',
+                                                                samples=[{'GT': vcf_info_dict['gt']}])
+                    vcf_out_file.write(vcf_record)
         else:
-            # Single-line record
-            info_field = {'SVTYPE': vcf_info_dict['sv_type'], 'SVLEN': vcf_info_dict['sv_len'],
-                          'GRAMMAR': grammar, 'SVID': f"sv{parent_id}", 'OP_TYPE': vcf_info_dict['op_type'],}
+            # Single-line record; position spans every grammar, TARGET only when the grammars share it
+            all_fragments = [frag for _, fragments in sv.grammars for frag in fragments]
+            start, stop = min(frag.start for frag in all_fragments), max(frag.end for frag in all_fragments)
+            info_field = {'SVTYPE': vcf_info_dict['sv_type'], 'SVLEN': stop - start,
+                          'GRAMMAR': '|'.join(grammar for grammar, _ in sv.grammars),
+                          'SVID': f"sv{parent_id}", 'OP_TYPE': vcf_info_dict['op_type'],}
             if SV_REGISTRY[sv.stitch_class].get("fragment_fn", None):
-                info_field['FRAGMENT_INTERVALS'] = ','.join(
-                    [f'{frag.operation}: {frag.start}-{frag.end} ({frag.target_start}-{frag.target_end})' for frag in sv.fragments])
-            if 'target' in vcf_info_dict:
+                info_field['FRAGMENT_INTERVALS'] = '|'.join(
+                    ','.join([f'{frag.operation}: {frag.start}-{frag.end} ({frag.target_start}-{frag.target_end})'
+                              for frag in fragments])
+                    for _, fragments in sv.grammars)
+            targets = {frag.target_start for frag in all_fragments if frag.target_start is not None}
+            if 'target' in vcf_info_dict and len(targets) == 1:
                 info_field['TARGET'] = vcf_info_dict['target']
                 info_field['TARGET_CHROM'] = vcf_info_dict['chrom']
-            vcf_record = vcf_out_file.header.new_record(contig=vcf_info_dict['chrom'], start=vcf_info_dict['start'],
-                                                        stop=vcf_info_dict['stop'],
+            vcf_record = vcf_out_file.header.new_record(contig=vcf_info_dict['chrom'], start=start,
+                                                        stop=stop,
                                                         alleles=['N', '<%s>' % vcf_info_dict['sv_type']],
                                                         id=f"sv{parent_id}",
                                                         info=info_field,
@@ -489,6 +513,10 @@ def generate_merged_callset(input_recs, config):
             dropped_svs.append(csv)
             dropped_reasons.append(filter_reason)
         else:
+            # alternative grammars are held to the same length limits
+            csv.grammars = [(grammar, fragments) for grammar, fragments in csv.grammars
+                            if config.minimum_length <= sum(frag.end - frag.start for frag in fragments) <= config.maximum_length
+                            and min(frag.end - frag.start for frag in fragments) >= config.minimum_fragment_length]
             kept_svs.append(csv)
 
     if config.deduplicate_calls:

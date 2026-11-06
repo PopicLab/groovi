@@ -1,4 +1,5 @@
 from collections import defaultdict
+from dataclasses import replace
 from intervaltree import IntervalTree
 
 from groovi.seq.sv import Fragment
@@ -198,19 +199,64 @@ def match_inv_nrtra_left(trees, tolerance=0):
     return [[d, e, f] for f, d, e in match_inv_nrtra([trees[2], trees[0], trees[1]], tolerance, side='start')]
 
 
-def nrtra_fragments(csv):
+def nrtra_source_choices(csv):
     """
     nrTRA edges are not direction-specific (A, B, A), so the graph is symmetric and the source could be either side
-    of the B edge. Use the heuristic that the source is the shorter of the two possible segments.
+    of the B edge. Returns the CUT-PASTE fragment for each choice, shorter source first.
     """
     a1, b, a2 = csv.records['A1'], csv.records['B'], csv.records['A2']
     candidates = [(b.pos1, a2.pos1, b.pos2 + 1, b.chr2),
                   (a1.pos2, b.pos2, a1.pos1 + 1, a1.chr1)]
-    source_start, source_end, target, target_chrom = min(candidates, key=lambda t: t[1] - t[0])
-    # TODO: Resolve source and target ambiguity by evidence
     return [Fragment(chrom=csv.chrom, start=source_start, end=source_end + 1,
                      target_chrom=target_chrom, target_start=target, target_end=target + 1,
-                     operation='CUT-PASTE')]
+                     operation='CUT-PASTE')
+            for source_start, source_end, target, target_chrom in sorted(candidates, key=lambda t: t[1] - t[0])]
+
+
+def nrtra_fragments(csv):
+    """
+    Uses the heuristic that the nrTRA source is the shorter of the two possible segments.
+    """
+    return nrtra_source_choices(csv)[:1]
+
+
+def nrtra_alternative_grammars(csv):
+    """
+    The other source choice of the symmetric nrTRA edges, with its grammar.
+    """
+    return [(SV_REGISTRY['nrTRA']['grammar']['left' if frag.target_start < frag.start else 'right'], [frag])
+            for frag in nrtra_source_choices(csv)[1:]]
+
+
+def inv_ddup_alternative_grammars(csv):
+    """
+    The same inverted copy with the spacer between source and target inverted: AB->Aba for a target downstream
+    of the source, AB->baB upstream. Not defined for an interchromosomal or adjacent target.
+    """
+    source = csv.fragments[0]
+    if source.target_chrom != source.chrom:
+        return []
+    if source.target_start > source.end:
+        spacer_start, spacer_end, grammar = source.end, source.target_start, 'AB->Aba'
+    elif source.target_start < source.start:
+        spacer_start, spacer_end, grammar = source.target_start, source.start, 'AB->baB'
+    else:
+        return []
+    return [(grammar, [source, Fragment(chrom=csv.chrom, start=spacer_start, end=spacer_end, operation='INV')])]
+
+def dupinvdup_alternative_grammars(csv):
+    """
+    The same junctions with the middle segment B kept in place: ABC->ABCaC, the inverted copy of A then a copy of C
+    inserted after C, and ABC->AcABC, the inverted copy of C then a copy of A inserted after A.
+    """
+    a, b, c = csv.fragments  # COPYinv-PASTE of A, INV of B, COPYinv-PASTE of C
+    keep = replace(b, operation='KEEP')
+    after_c = dict(target_chrom=c.chrom, target_start=c.end, target_end=c.end + 1)
+    after_a = dict(target_chrom=a.chrom, target_start=a.end, target_end=a.end + 1)
+    return [('ABC->ABCaC', [replace(a, **after_c, insord=0), keep,
+                            replace(c, operation='COPY-PASTE', **after_c, insord=1)]),
+            ('ABC->AcABC', [replace(c, **after_a, insord=0), keep,
+                            replace(a, operation='COPY-PASTE', **after_a, insord=1)])]
 
 # Validation methods
 def validate_non_inter_chromosomal(csv):
@@ -269,6 +315,7 @@ def validate_no_split_segments(csv):
     'match_fn': (trees, tolerance) -> record lists, one tree per candidate and each list in candidate order
     'op_name': Replacement SV name for BED output (SV name)
     'fragment_fn': function to compute fragments (None)
+    'alternative_grammars_fn': csv -> [(grammar, fragments)], the other grammars the same breakpoints admit (None)
     'start_stop_fn': function to compute start and stop of VCF entry (None)
 """
 SV_REGISTRY = {
@@ -356,6 +403,7 @@ SV_REGISTRY = {
         'match_fn': lambda x, tolerance: match_nrtra(x[0], x[1], x[2], tolerance),
         'dispersion': True,
         'fragment_fn': nrtra_fragments,
+        'alternative_grammars_fn': nrtra_alternative_grammars,
         'validation_fns': [validate_no_split_segments]
     },
     'INV_nrTRA_right': {
@@ -402,6 +450,7 @@ SV_REGISTRY = {
                      target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1,
                      target_end=csv.records['B'].pos2 + 2, operation='COPYinv-PASTE')
         ],
+        'alternative_grammars_fn': inv_ddup_alternative_grammars,
         'validation_fns': [validate_no_split_segments]
     },
     'INV_dDUP_left': {
@@ -418,6 +467,7 @@ SV_REGISTRY = {
                                  target_chrom=csv.records['A'].chr1, target_start=csv.records['A'].pos1 + 1,
                                  target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE')
         ],
+        'alternative_grammars_fn': inv_ddup_alternative_grammars,
         'validation_fns': [validate_no_split_segments]
     },
     'dDUP_INV_right': {
@@ -463,6 +513,10 @@ SV_REGISTRY = {
             Fragment(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['B'].pos2 + 1, operation='INV'),
             Fragment(chrom=csv.chrom, start=csv.records['B'].pos2 + 1, end=csv.records['A'].pos2, operation='CUT'),
         ],
+        'alternative_grammars_fn': lambda csv: [
+            ('ABC->ABa', [replace(frag, operation='KEEP') if frag.operation == 'INV' else frag
+                          for frag in csv.fragments])
+        ],
         'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
                            validate_contiguous_segments, validate_targets_on_breakpoints]
     },
@@ -476,6 +530,10 @@ SV_REGISTRY = {
             Fragment(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
                      target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos1 + 1,
                      target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE'),
+        ],
+        'alternative_grammars_fn': lambda csv: [
+            ('ABC->cBC', [replace(frag, operation='KEEP') if frag.operation == 'INV' else frag
+                          for frag in csv.fragments])
         ],
         'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
                            validate_contiguous_segments, validate_targets_on_breakpoints]
@@ -506,6 +564,7 @@ SV_REGISTRY = {
                      target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1, target_end=csv.records['B'].pos1 + 2,
                      operation='COPYinv-PASTE')
         ],
+        'alternative_grammars_fn': dupinvdup_alternative_grammars,
         'is_self_matching': True,
         'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
                            validate_contiguous_segments, validate_targets_on_breakpoints]
