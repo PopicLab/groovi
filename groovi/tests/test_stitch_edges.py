@@ -61,13 +61,13 @@ class TestStitching(TestCase):
              'gt': (0, 0), 'op_type': 'delINVdel'},
             {'chrom': 'chr1', 'start': 1000, 'stop': 1401, 'sv_type': 'dupINVdup', 'qual': 1, 'sv_len': 401,
              'gt': (0, 0), 'op_type': 'dupINVdup'},
-            {'chrom': 'chr1', 'start': 120, 'stop': 130, 'sv_type': 'dDUP', 'qual': 1, 'sv_len': 10, 'target': 110,
+            {'chrom': 'chr1', 'start': 120, 'stop': 131, 'sv_type': 'dDUP', 'qual': 1, 'sv_len': 11, 'target': 111,
              'gt': (0, 0), 'op_type': 'DUP'},
-            {'chrom': 'chr1', 'start': 10, 'stop': 20, 'sv_type': 'dDUP', 'qual': 1, 'sv_len': 10, 'target': 30,
+            {'chrom': 'chr1', 'start': 10, 'stop': 21, 'sv_type': 'dDUP', 'qual': 1, 'sv_len': 11, 'target': 31,
              'gt': (0, 0), 'op_type': 'DUP'},
-            {'chrom': 'chr1', 'start': 30, 'stop': 50, 'sv_type': 'INV_dDUP', 'qual': 1, 'sv_len': 20, 'target': 10,
+            {'chrom': 'chr1', 'start': 30, 'stop': 51, 'sv_type': 'INV_dDUP', 'qual': 1, 'sv_len': 21, 'target': 11,
              'gt': (0, 0), 'op_type': 'INV_dDUP'},
-            {'chrom': 'chr1', 'start': 100, 'stop': 119, 'sv_type': 'nrTRA', 'qual': 1, 'sv_len': 19, 'target': 10,
+            {'chrom': 'chr1', 'start': 100, 'stop': 120, 'sv_type': 'nrTRA', 'qual': 1, 'sv_len': 20, 'target': 11,
              'gt': (0, 0), 'op_type': 'nrTRA'},
             {'chrom': 'chr1', 'start': 11, 'stop': 20, 'sv_type': 'DEL', 'qual': 1, 'sv_len': 9, 'gt': (0, 0), 'op_type': 'CUT'}
         ]
@@ -95,7 +95,7 @@ class TestStitching(TestCase):
         tmp_path = tempfile.mkstemp(suffix='.vcf')[1]
         export_callset_to_vcf(merged_recs, tmp_path, contigs=[MockContig('chr1')], sep_frag_recs=False)
 
-    def test_filter_merged_recs(self):
+    def test_filter_overlaps(self):
 
         data = [
             {'chrom': 'chr1', 'sv_type': 'DEL', 'start': 10, 'stop': 100, 'qual': 1000},
@@ -109,7 +109,7 @@ class TestStitching(TestCase):
         recs = []
         for rec_data in data:
             csv = ComplexSV(
-                sv_type=rec_data['sv_type'],
+                stitch_class=rec_data['sv_type'],
                 chrom=rec_data['chrom'],
                 records=[SVBreakpoint(sv_type=rec_data['sv_type'],
                                       chr1=rec_data['chrom'],
@@ -130,10 +130,10 @@ class TestStitching(TestCase):
         rec = SVBreakpoint(sv_type='dDUP_B', chr1='chr2', pos1=20, chr2='chr2', pos2=51, qual=2000)
 
         tra_recs.append(rec)
-        csv = ComplexSV.from_records(tra_recs)
+        csv = ComplexSV.from_records(tra_recs, 'dDUP_right')
         recs.append(csv)
 
-        filtered_recs = filter_merged_recs(recs)
+        filtered_recs, _, _ = filter_overlapping_svs(recs)
 
         filtered_quals = set([rec.qual for rec in filtered_recs])
 
@@ -156,7 +156,7 @@ class TestComplexSV(TestCase):
         Individual SV types are tested separately
         """
         csv = ComplexSV(
-            sv_type="DUP",
+            stitch_class="DUP",
             chrom='chr1', qual=60,
             records=[SVBreakpoint(sv_type='DUP', chr1='chr1', pos1=5, chr2='chr1', pos2=15, qual=60)]
         )
@@ -173,20 +173,20 @@ class TestComplexSV(TestCase):
         self.assertEqual('DUP', bed_info[0]['sv_type'])
 
         csv = ComplexSV(
-            sv_type="nrTRA",
+            stitch_class="nrTRA",
             chrom='chr1', qual=1.0,
             records=[SVBreakpoint(sv_type='nrTRA_A', chr1='chr1', pos1=5, chr2='chr1', pos2=15, qual=10),
                      SVBreakpoint(sv_type='nrTRA_B', chr1='chr1', pos1=6, chr2='chr1', pos2=20, qual=10),
-                     SVBreakpoint(sv_type='nrTRA_C', chr1='chr1', pos1=14, chr2='chr1', pos2=21, qual=10),],
+                     SVBreakpoint(sv_type='nrTRA_A', chr1='chr1', pos1=14, chr2='chr1', pos2=21, qual=10),],
         )
         bed_info = csv.get_bed_info()
         self.assertEqual('chr1', bed_info[0]['chrom'])
         self.assertEqual(15, bed_info[0]['source_s'])
-        self.assertEqual(20, bed_info[0]['source_e'])
-        self.assertEqual(5, bed_info[0]['target_s'])
-        self.assertEqual(6, bed_info[0]['target_e'])
+        self.assertEqual(21, bed_info[0]['source_e'])
+        self.assertEqual(6, bed_info[0]['target_s'])
+        self.assertEqual(7, bed_info[0]['target_e'])
         self.assertEqual('CUT-PASTE', bed_info[0]['transform'])
-        self.assertEqual(5, bed_info[0]['sv_len'])
+        self.assertEqual(6, bed_info[0]['sv_len'])
         self.assertEqual('nrTRA', bed_info[0]['sv_type'])
 
 
@@ -201,7 +201,7 @@ class TestComplexSV(TestCase):
         """
 
         csv = ComplexSV(
-            sv_type='DEL',
+            stitch_class='DEL',
             chrom=1, qual=40,
             records=[SVBreakpoint(sv_type='DEL', pos1=5, chr1='chr1', pos2=15, chr2='chr1', qual=40)]
         )
@@ -216,24 +216,25 @@ class TestComplexSV(TestCase):
         self.assertEqual(9, vcf_info['sv_len'])
 
         # Test dispersion SVs
-        for dispersion_sv in ['dDUP', 'INV_dDUP']:
+        for dispersion_sv, edges in [('dDUP', [('dDUP_B', 5, 15), ('dDUP_A', 6, 20)]),
+                                     ('INV_dDUP', [('INV_dDUP_A', 5, 20), ('INV_dDUP_B', 6, 15)])]:
 
             csv = ComplexSV(
-                sv_type=dispersion_sv,
+                stitch_class=f'{dispersion_sv}_left',
                 chrom=1, qual=0.9,
-                records=[SVBreakpoint(sv_type=f'{dispersion_sv}_A', chr1='chr1', pos1=5, chr2='chr1', pos2=15, qual=1),
-                         SVBreakpoint(sv_type=f'{dispersion_sv}_B', chr1='chr1', pos1=6, chr2='chr2', pos2=20, qual=1)],
+                records=[SVBreakpoint(sv_type=edge, chr1='chr1', pos1=pos1, chr2='chr1', pos2=pos2, qual=1)
+                         for edge, pos1, pos2 in edges],
             )
 
             vcf_info = csv.get_vcf_info()
             self.assertEqual(15, vcf_info['start'])
-            self.assertEqual(20, vcf_info['stop'])
+            self.assertEqual(21, vcf_info['stop'])
             self.assertEqual(dispersion_sv, vcf_info['sv_type'])
 
         # Test contained SVs
 
         csv = ComplexSV(
-            sv_type="delINVdel", chrom=1, qual=0.9,
+            stitch_class="delINVdel", chrom=1, qual=0.9,
             records=[SVBreakpoint(sv_type=f'delINVdel_A', chr1='chr1', pos1=5, chr2='chr1', pos2=15, qual=1),
                      SVBreakpoint(sv_type=f'delINVdel_B', chr1='chr1', pos1=6, chr2='chr1', pos2=20, qual=1)],
         )
@@ -258,13 +259,13 @@ class TestComplexSV(TestCase):
              SVBreakpoint(sv_type='dupINVdel_B', chr1='chr2', pos1=20, chr2='chr2', pos2=600, qual=0, evidence=0)],
         ]
 
-        csvs = [ComplexSV.from_records(bkps) for bkps in overlapping_data]
+        csvs = [ComplexSV.from_records(bkps, stitch_class) for bkps, stitch_class in zip(overlapping_data, ['DEL', 'INV', 'DUP', 'INVdel', 'dupINVdel'])]
 
-        filtered_csvs = sorted(filter_merged_recs(csvs, prioritize_evidence=False), key=lambda x: (x.chrom, x.sv_type))
+        filtered_csvs = sorted(filter_overlapping_svs(csvs, prioritize_evidence=False)[0], key=lambda x: (x.chrom, x.sv_type))
         expected_result_qual = [csvs[0], csvs[2], csvs[4]]
         self.assertListEqual(filtered_csvs, expected_result_qual)
 
-        filtered_csvs = sorted(filter_merged_recs(csvs, prioritize_evidence=True), key=lambda x: (x.chrom, x.sv_type))
+        filtered_csvs = sorted(filter_overlapping_svs(csvs, prioritize_evidence=True)[0], key=lambda x: (x.chrom, x.sv_type))
         expected_result_evidence = [csvs[1], csvs[3], csvs[4]]
         self.assertListEqual(filtered_csvs, expected_result_evidence)
 
@@ -294,7 +295,7 @@ class TestSVTypes(TestCase):
             recs.append(rec)
 
         merged_recs = find_matches(recs, tolerance=tolerance)
-        # filtered_recs = filter_merged_recs(merged_recs)
+        # filtered_recs = filter_overlapping_svs(merged_recs)
         print(merged_recs)
 
         keys_to_compare = {'start', 'stop', 'sv_type', 'sv_len', 'target', 'info', 'fragments'}
@@ -373,18 +374,18 @@ class TestSVTypes(TestCase):
         The duplication will be inserted into a location with starts or ends that are off by one
         """
         data = [
-            {'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'dDUP_A'},
-            {'start': 6, 'stop': 20, 'qual': 0.9, 'id': 'dDUP_B'},
+            {'start': 5, 'stop': 15, 'qual': 0.9, 'id': 'dDUP_B'},
+            {'start': 6, 'stop': 20, 'qual': 0.9, 'id': 'dDUP_A'},
             {'start': 1, 'stop': 30, 'qual': 0.9, 'id': 'dDUP_A'},
             {'start': 7, 'stop': 31, 'qual': 0.9, 'id': 'dDUP_B'},
         ]
         expected_result = [
-            {'start': 1, 'stop': 7, 'sv_type': 'dDUP', 'target': 30, 'sv_len': 6},
-            {'start': 15, 'stop': 20, 'sv_type': 'dDUP', 'target': 5, 'sv_len': 5},
+            {'start': 1, 'stop': 8, 'sv_type': 'dDUP', 'target': 31, 'sv_len': 7},
+            {'start': 15, 'stop': 21, 'sv_type': 'dDUP', 'target': 6, 'sv_len': 6},
         ]
         expected_fragments = [
-            (1, 7, 30, 31, 'COPY-PASTE'),
-            (15, 20, 5, 6, 'COPY-PASTE'),
+            (1, 8, 31, 32, 'COPY-PASTE'),
+            (15, 21, 6, 7, 'COPY-PASTE'),
         ]
 
         self.run_pipeline(data, expected_result, expected_fragments, ['A_->A_A', '_A->A_A'])
@@ -401,12 +402,12 @@ class TestSVTypes(TestCase):
             {'start': 17, 'stop': 39, 'qual': 100, 'id': 'INV_dDUP_B'},
         ]
         expected_result = [
-            {'start': 6, 'stop': 10, 'sv_type': 'INV_dDUP', 'target': 1, 'sv_len': 4},
-            {'start': 15, 'stop': 17, 'sv_type': 'INV_dDUP', 'target': 39, 'sv_len': 2},
+            {'start': 6, 'stop': 11, 'sv_type': 'INV_dDUP', 'target': 2, 'sv_len': 5},
+            {'start': 15, 'stop': 18, 'sv_type': 'INV_dDUP', 'target': 40, 'sv_len': 3},
         ]
         expected_fragments = [
-            (6, 10, 1, 2, 'COPYinv-PASTE'),
-            (15, 17, 39, 40, 'COPYinv-PASTE'),
+            (6, 11, 2, 3, 'COPYinv-PASTE'),
+            (15, 18, 40, 41, 'COPYinv-PASTE'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['_A->a_A', 'A_->A_a'])
 
@@ -422,20 +423,20 @@ class TestSVTypes(TestCase):
             {'start': 2, 'stop': 51, 'qual': 100, 'id': 'dDUP_INV_B'},
             {'start': 2, 'stop': 100, 'qual': 100, 'id': 'dDUP_INV_C'},
             {'start': 50, 'stop': 99, 'qual': 100, 'id': 'dDUP_INV_D'},
-            {'start': 150, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_A'},
-            {'start': 151, 'stop': 200, 'qual': 100, 'id': 'dDUP_INV_B'},
-            {'start': 101, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_C'},
-            {'start': 102, 'stop': 151, 'qual': 100, 'id': 'dDUP_INV_D'},
+            {'start': 101, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_E'},
+            {'start': 102, 'stop': 151, 'qual': 100, 'id': 'dDUP_INV_F'},
+            {'start': 150, 'stop': 199, 'qual': 100, 'id': 'dDUP_INV_G'},
+            {'start': 151, 'stop': 200, 'qual': 100, 'id': 'dDUP_INV_H'},
         ]
         expected_result = [
-            {'start': 2, 'stop': 50, 'sv_type': 'dDUP_INV', 'target': 99, 'sv_len': 48},
-            {'start': 151, 'stop': 199, 'sv_type': 'dDUP_INV', 'target': 101, 'sv_len': 48},
+            {'start': 2, 'stop': 51, 'sv_type': 'dDUP_INV', 'target': 100, 'sv_len': 49},
+            {'start': 151, 'stop': 200, 'sv_type': 'dDUP_INV', 'target': 102, 'sv_len': 49},
         ]
         expected_fragments = [
-            (2, 50, None, None, 'INV'),
-            (2, 50, 99, 100, 'COPYinv-PASTE'),
-            (151, 199, None, None, 'INV'),
-            (151, 199, 101, 102, 'COPYinv-PASTE'),
+            (2, 51, None, None, 'INV'),
+            (2, 51, 100, 101, 'COPYinv-PASTE'),
+            (151, 200, None, None, 'INV'),
+            (151, 200, 102, 103, 'COPYinv-PASTE'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['A_->a_a', '_A->a_a'])
 
@@ -453,12 +454,12 @@ class TestSVTypes(TestCase):
             {'start': 119, 'stop': 125, 'qual': 100, 'id': 'nrTRA_A'},
         ]
         expected_result = [
-            {'start': 2, 'stop': 19, 'sv_type': 'nrTRA', 'target': 59, 'sv_len': 17},
-            {'start': 120, 'stop': 124, 'sv_type': 'nrTRA', 'target': 101, 'sv_len': 4},
+            {'start': 2, 'stop': 20, 'sv_type': 'nrTRA', 'target': 60, 'sv_len': 18},
+            {'start': 120, 'stop': 125, 'sv_type': 'nrTRA', 'target': 102, 'sv_len': 5},
         ]
         expected_fragments = [
-            (2, 19, 59, 60, 'CUT-PASTE'),
-            (120, 124, 101, 102, 'CUT-PASTE'),
+            (2, 20, 60, 61, 'CUT-PASTE'),
+            (120, 125, 102, 103, 'CUT-PASTE'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['A_->_A', '_A->A_'])
 
@@ -471,17 +472,17 @@ class TestSVTypes(TestCase):
             {'start': 1, 'stop': 20, 'qual': 100, 'id': 'INV_nrTRA_A'},
             {'start': 2, 'stop': 30, 'qual': 100, 'id': 'INV_nrTRA_B'},
             {'start': 19, 'stop': 29, 'qual': 100, 'id': 'INV_nrTRA_C'},
-            {'start': 200, 'stop': 400, 'qual': 100, 'id': 'INV_nrTRA_A'},
             {'start': 150, 'stop': 399, 'qual': 100, 'id': 'INV_nrTRA_B'},
             {'start': 151, 'stop': 201, 'qual': 100, 'id': 'INV_nrTRA_C'},
+            {'start': 200, 'stop': 400, 'qual': 100, 'id': 'INV_nrTRA_A'},
         ]
         expected_result = [
-            {'start': 2, 'stop': 19, 'sv_type': 'INV_nrTRA', 'target': 29, 'sv_len': 17},
-            {'start': 201, 'stop': 399, 'sv_type': 'INV_nrTRA', 'target': 150, 'sv_len': 198},
+            {'start': 2, 'stop': 20, 'sv_type': 'INV_nrTRA', 'target': 30, 'sv_len': 18},
+            {'start': 201, 'stop': 400, 'sv_type': 'INV_nrTRA', 'target': 151, 'sv_len': 199},
         ]
         expected_fragments = [
-            (2, 19, 29, 30, 'CUTinv-PASTE'),
-            (201, 399, 150, 151, 'CUTinv-PASTE'),
+            (2, 20, 30, 31, 'CUTinv-PASTE'),
+            (201, 400, 151, 152, 'CUTinv-PASTE'),
         ]
 
         self.run_pipeline(data, expected_result, expected_fragments, ['A_->_a', '_A->a_'])
@@ -496,11 +497,11 @@ class TestSVTypes(TestCase):
             {'start': 2, 'stop': 30, 'qual': 100, 'id': 'INVdel_B', 'evidence': 10},
         ]
         expected_result = [
-            {'start': 2, 'stop': 31, 'sv_type': 'INVdel', 'sv_len': 29},
+            {'start': 2, 'stop': 30, 'sv_type': 'INVdel', 'sv_len': 28},
         ]
         expected_fragments = [
             (2, 21, None, None, 'INV'),
-            (21, 31, None, None, 'CUT')
+            (21, 30, None, None, 'CUT')
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['AB->a'])
 
@@ -514,11 +515,11 @@ class TestSVTypes(TestCase):
             {'start': 15, 'stop': 30, 'qual': 100, 'id': 'delINV_B', 'evidence': 10},
         ]
         expected_result = [
-            {'start': 1, 'stop': 30, 'sv_type': 'delINV', 'sv_len': 29},
+            {'start': 2, 'stop': 30, 'sv_type': 'delINV', 'sv_len': 28},
         ]
         expected_fragments = [
-            (1, 16, None, None, 'CUT'),
-            (16, 30, None, None, 'INV'),
+            (2, 15, None, None, 'CUT'),
+            (15, 30, None, None, 'INV'),
         ]
         self.run_pipeline(data, expected_result, expected_fragments, ['AB->b'])
 

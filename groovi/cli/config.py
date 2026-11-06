@@ -95,7 +95,7 @@ STITCHING_DEFAULTS = {
     "use_cached_predictions": False,
     "prioritize_evidence": True,
     'maximum_length': 1000000,
-    "minimum_fragment_length": 30,
+    "minimum_fragment_length": 2,
     'duplication_threshold': 10,
 }
 

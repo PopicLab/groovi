@@ -1,66 +1,87 @@
 import groovi.utils.types
 import groovi.seq.io as io
+
 import numpy as np
 from scipy.spatial import KDTree
+import string
 from intervaltree import IntervalTree
-from typing import Union
 from collections import defaultdict
 from dataclasses import dataclass
 import logging
 from pycues import *
 
+BP_TYPES = [
+    # simple
+    "DEL", "DUP",
+    "INV", "INV_A", "INV_B",
+    # 2 bkp
+    "DUP_INV_A", "DUP_INV_B", "DUP_INV_C",
+    # 3 bkp
+    "INVdel_A", "INVdel_B",
+    "delINV_A", "delINV_B",
+    "INVdup_A", "INVdup_B",
+    "dupINV_A", "dupINV_B",
+    # 4 bkp
+    "dupINVdel_A", "dupINVdel_B",
+    "delINVdup_A", "delINVdup_B",
+    "delINVdel_A", "delINVdel_B",
+    "dupINVdup_A", "dupINVdup_B",
+    # dispersed
+    "dDUP_A", "dDUP_B", "dDUP_C", "dDUP_D",
+    "nrTRA_A", "nrTRA_B",  # NOTE Currently edges [A,B,A] subject to change
+    "INV_nrTRA_A", "INV_nrTRA_B", "INV_nrTRA_C",
+    "INV_nrTRA_D", "INV_nrTRA_E", "INV_nrTRA_F",
+    "INV_dDUP_A", "INV_dDUP_B", "INV_dDUP_C", "INV_dDUP_D",
+    # non class types
+    "NEG",
+]
 
-BP_TYPES = ["DEL", "DUP", "INV", "INV_A", "INV_B",
-            "DUP_INV_A", "DUP_INV_B", "DUP_INV_C",
-            "INVdel_A", "INVdel_B",
-            "delINV_A", "delINV_B",
-            "INVdup_A", "INVdup_B",
-            "dupINV_A", "dupINV_B",
-            "dupINVdel_A", "dupINVdel_B",
-            "delINVdup_A", "delINVdup_B",
-            "delINVdel_A", "delINVdel_B",
-            "dDUP_A", "dDUP_B",
-            "dDUP_INV_A", "dDUP_INV_B", "dDUP_INV_C", "dDUP_INV_D",
-            "nrTRA_A", "nrTRA_B",
-            "INV_nrTRA_A", "INV_nrTRA_B", "INV_nrTRA_C",
-            "dupINV3_A", "dupINV3_B",
-            "dupINVdup_A", "dupINVdup_B"]
+SVBpType = groovi.utils.types.make_enum("SVBpType", BP_TYPES, __name__)
+SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX10", "CPX11", "CPX14", "CPX14_SYM"], __name__)
 
-SVBpType = groovi.utils.types.make_enum("SVBpType", ["NEG", "BND"] + BP_TYPES, __name__)
-SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX12", "CPX10", "CPX15"], __name__)
-SV_CLASS_SETS_GT = {SVTypeSet.CPX12}
-TYPE_SET_TO_TYPES = {SVTypeSet.CPX12: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
-                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
-                                       SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                                       SVBpType.INVdup_A, SVBpType.INVdup_B, SVBpType.dupINV_A, SVBpType.dupINV_B,
-                                       SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                                       SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                                       SVBpType.delINVdel_A,
-                                       SVBpType.dupINVdup_A,
-                                       ],
-                     SVTypeSet.CPX10: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV,
-                                       SVBpType.INV_A, SVBpType.INV_B,
-                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
-                                       SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                                       SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                                       SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                                       SVBpType.delINVdel_A, SVBpType.delINVdel_B,
-                                       SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
-                                       ],
-                     SVTypeSet.CPX15: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
-                                       SVBpType.DUP_INV_A, SVBpType.DUP_INV_B,
-                                       SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                                       SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                                       SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                                       SVBpType.delINVdel_A,
-                                       SVBpType.dupINVdup_A,
-                                       SVBpType.dDUP_A, SVBpType.dDUP_B,
-                                       SVBpType.dDUP_INV_A, SVBpType.dDUP_INV_B, SVBpType.dDUP_INV_C, SVBpType.dDUP_INV_D,
-                                       SVBpType.nrTRA_A, SVBpType.nrTRA_B,
-                                       SVBpType.INV_nrTRA_A, SVBpType.INV_nrTRA_B, SVBpType.INV_nrTRA_C,
-                                       SVBpType.dupINV3_A, SVBpType.dupINV3_B,
-                                       ]
-                     }
+TYPE_SET_TO_TYPES = {
+    SVTypeSet.CPX10: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
+                                           SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
+                                           SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
+                                           SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
+                                           SVBpType.delINVdup_A, SVBpType.delINVdup_B,
+                                           SVBpType.delINVdel_A, SVBpType.delINVdel_B,
+                                           SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
+                                           ],
+    SVTypeSet.CPX11: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
+                      SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
+                      SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
+                      SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
+                      SVBpType.delINVdup_A, SVBpType.delINVdup_B,
+                      SVBpType.delINVdel_A, SVBpType.delINVdel_B,
+                      SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
+                      SVBpType.dDUP_A, SVBpType.dDUP_B, SVBpType.dDUP_C, SVBpType.dDUP_D,
+                      ],
+    SVTypeSet.CPX14: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
+                      SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
+                      SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
+                      SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
+                      SVBpType.delINVdup_A, SVBpType.delINVdup_B,
+                      SVBpType.delINVdel_A, SVBpType.delINVdel_B,
+                      SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
+                      SVBpType.nrTRA_A, SVBpType.nrTRA_B, # TODO: nrTRA subject to change
+                      SVBpType.dDUP_A, SVBpType.dDUP_B, SVBpType.dDUP_C, SVBpType.dDUP_D,
+                      SVBpType.INV_nrTRA_A, SVBpType.INV_nrTRA_B, SVBpType.INV_nrTRA_C, SVBpType.INV_nrTRA_D, SVBpType.INV_nrTRA_E, SVBpType.INV_nrTRA_F,
+                      SVBpType.INV_dDUP_A, SVBpType.INV_dDUP_B, SVBpType.INV_dDUP_C, SVBpType.INV_dDUP_D,
+                      ],
+    SVTypeSet.CPX14_SYM: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
+                          SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
+                          SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
+                          SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
+                          SVBpType.delINVdup_A, SVBpType.delINVdup_B,
+                          SVBpType.delINVdel_A, SVBpType.delINVdel_B,
+                          SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
+                          SVBpType.nrTRA_A, SVBpType.nrTRA_B,
+                          SVBpType.dDUP_A, SVBpType.dDUP_B,
+                          SVBpType.INV_nrTRA_A, SVBpType.INV_nrTRA_B, SVBpType.INV_nrTRA_C,
+                          SVBpType.INV_dDUP_A, SVBpType.INV_dDUP_B,
+                          ]
+}
 
 class SVBreakpoint:
     def __init__(self, sv_type, chr1, pos1, chr2, pos2, qual, gt=(None, None), evidence=None):

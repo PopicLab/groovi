@@ -2,7 +2,6 @@ from pysam import VariantFile, VariantRecord
 from collections import defaultdict, Counter
 from intervaltree import Interval, IntervalTree
 import pysam
-import re
 
 from groovi.cli.config import DiscoverConfig
 from groovi.seq.sv import SVBreakpoint, Fragment
@@ -11,42 +10,51 @@ import logging
 
 import warnings
 
-from groovi.seq.stitch_rules import SV_REGISTRY, dispersion_source_target
+from groovi.seq.stitch_rules import SV_REGISTRY, EDGE_TYPE_TO_STITCH_CLASSES
 
 
 class ComplexSV:
-    def __init__(self, sv_type, chrom, qual=None, records = None):
-        self.sv_type = sv_type
+    def __init__(self, stitch_class, chrom, qual=None, records=None):
+        """
+        :param pattern: SV_REGISTRY entry the records were stitched with, e.g. 'DEL' or 'dDUP_left'
+        :param records: dict role -> SVBreakpoint, or a list in the entry's candidate order
+        """
+        sv_registry_info = SV_REGISTRY[stitch_class]
+
+        self.stitch_class = stitch_class
+        self.sv_type = sv_registry_info.get('sv_type', stitch_class)
+        self.direction = sv_registry_info.get('direction')
         self.chrom = chrom
         self.qual = qual
-        self.records = records
+        self.records = records if isinstance(records, dict) else dict(zip(sv_registry_info['candidates'], records))
 
-        sv_registry_info = SV_REGISTRY[sv_type]
+        self.fragments = sv_registry_info['fragment_fn'](self)
 
         # dispersion logic
         if sv_registry_info.get('dispersion', False):
-            self.source_start, self.source_end, self.target, self.target_chrom = dispersion_source_target(self)
-            self.grammar = sv_registry_info['grammar'][0] if self.target < self.source_start else \
-                sv_registry_info['grammar'][1]
-            # For dispersions where the grammar can change based on direction of dispersion,
-            # we store the left and right grammars as a pair
+            moved = next(frag for frag in self.fragments if frag.target_start is not None)
+            self.target, self.target_chrom = moved.target_start, moved.target_chrom
         else:
-            self.source_start, self.source_end, self.target, self.target_chrom = None, None, None, None
-            self.grammar = sv_registry_info['grammar']
+            self.target, self.target_chrom = None, None
 
-        self.fragments = sv_registry_info['fragment_fn'](self)
+        self.grammar = sv_registry_info['grammar']
+        if isinstance(self.grammar, dict):
+            # nrTRA: the fragment function decided the direction
+            self.direction = 'left' if self.target < moved.start else 'right'
+            self.grammar = self.grammar[self.direction]
+
         self.validated = all(fn(self) for fn in sv_registry_info['validation_fns'])
 
     def __str__(self):
         return repr((self.sv_type, self.chrom, self.qual, self.records))
 
     @staticmethod
-    def from_records(recs):
-        sv_type = re.sub("_\w$", "", recs[0].type)
+    def from_records(recs, stitch_class):
+        # pattern = EDGE_TYPE_TO_SV_CLASSES[recs[0].type]
         chrom = recs[0].chr1
         qual = round(sum([rec.qual for rec in recs]) / len(recs))
 
-        return ComplexSV(sv_type, chrom, qual, recs)
+        return ComplexSV(stitch_class, chrom, qual, recs)
 
     @staticmethod
     def check_equality(csv1, csv2):
@@ -87,7 +95,7 @@ class ComplexSV:
                     'sv_type': self.sv_type,
                     'qual': self.qual,
                     'sv_len': stop - start,
-                    'gt': (0, 0), 'op_type': SV_REGISTRY[self.sv_type].get('op_name', self.sv_type)}
+                    'gt': (0, 0), 'op_type': SV_REGISTRY[self.stitch_class].get('op_name', self.sv_type)}
 
         if self.target:
             vcf_info['target'] = self.target
@@ -109,13 +117,11 @@ def find_matches(recs, tolerance = 0):
 
     trees = defaultdict(IntervalTree)
     for rec in recs:
-        # Assumes a naming convention with SV type followed by underscore identifier, e.g., 'dDUP_A'
-        sv_type_key = re.sub("_\w$", "", rec.type)
-        if sv_type_key not in SV_REGISTRY:
-            warnings.warn(f"Unknown SV type: {sv_type_key}")
+        if rec.type not in EDGE_TYPE_TO_STITCH_CLASSES:
+            warnings.warn(f"Unknown SV type: {rec.type}")
             continue
 
-        observed_types.add(sv_type_key)
+        observed_types.update(EDGE_TYPE_TO_STITCH_CLASSES[rec.type])
 
         rec_type = rec.type
 
@@ -124,18 +130,12 @@ def find_matches(recs, tolerance = 0):
 
     all_matches = []
 
-    for sv_type, sv_info in SV_REGISTRY.items():
-        if sv_type not in observed_types:
+    for stitch_class, sv_info in SV_REGISTRY.items():
+        if stitch_class not in observed_types:
             continue
-        logging.info(f"Finding stitch matches for {sv_type}")
+        logging.info(f"Finding stitch matches for {stitch_class}")
 
-        candidates: list[IntervalTree] = []
-        for rec_type in sv_info.get('candidates', []):
-            if isinstance(rec_type, str):
-                candidates.append(trees[rec_type])
-            elif isinstance(rec_type, tuple):
-                candidate_trees = [trees[subtype] for subtype in rec_type]
-                candidates.append(IntervalTree(interval for tree in candidate_trees for interval in tree))
+        candidates: list[IntervalTree] = [trees[rec_type] for rec_type in sv_info['candidates'].values()] # trees for each edge type according to classes
 
         match_fn = sv_info.get('match_fn', None)
         if not candidates:
@@ -155,12 +155,12 @@ def find_matches(recs, tolerance = 0):
                 logging.info(f'Filtered {len(matches) - len(single_chrom)} non-dispersions matched across contigs')
             matches = single_chrom
 
-        all_matches.extend([ComplexSV.from_records(recs) for recs in matches])
+        all_matches.extend([ComplexSV.from_records(recs, stitch_class) for recs in matches])
 
     return all_matches
 
 
-def filter_merged_svs(merged_svs, prioritize_evidence = False):
+def filter_overlapping_svs(merged_svs, prioritize_evidence = False):
     # filter the list of ComplexSV objects created by dispatch_match_functions()
     # taking the higher-confidence ComplexSV in the case of any collision
     chrom_intervals = defaultdict(IntervalTree)
@@ -169,7 +169,7 @@ def filter_merged_svs(merged_svs, prioritize_evidence = False):
     dropped_reasons =[]
 
     if prioritize_evidence:
-        key_func = lambda csv: -sum([rec.evidence if rec.evidence else 0 for rec in csv.records]) / len(csv.records)
+        key_func = lambda csv: -sum([rec.evidence if rec.evidence else 0 for rec in csv.records.values()]) / len(csv.records)
     else:
         key_func = lambda csv: -csv.qual
 
@@ -220,7 +220,7 @@ def deduplicate_svs(svs, overlap_frac = 0.7, size_sim = 0.7):
     """
 
     def get_evidence(csv):
-        return sum([rec.evidence if rec.evidence else 0 for rec in csv.records]) / (len(csv.records) or 1)
+        return sum([rec.evidence if rec.evidence else 0 for rec in csv.records.values()]) / (len(csv.records) or 1)
 
     svs = sorted(svs, key=get_evidence, reverse=True)
 
@@ -284,7 +284,7 @@ def deduplicate_svs(svs, overlap_frac = 0.7, size_sim = 0.7):
     return kept_svs, dropped_svs, dropped_reasons
 
 
-def export_callset_to_vcf(filtered_svs, output_path, contigs, sep_frag_recs=False) -> None:
+def export_callset_to_vcf(filtered_svs, output_path, contigs, sep_frag_recs=False):
     """
     Export function to write list of post-(merge+filter) ComplexSV objects to VCF
     """
@@ -334,7 +334,7 @@ def export_callset_to_vcf(filtered_svs, output_path, contigs, sep_frag_recs=Fals
             # Single-line record
             info_field = {'SVTYPE': vcf_info_dict['sv_type'], 'SVLEN': vcf_info_dict['sv_len'],
                           'GRAMMAR': grammar, 'SVID': f"sv{parent_id}", 'OP_TYPE': vcf_info_dict['op_type'],}
-            if SV_REGISTRY[vcf_info_dict['sv_type']].get("fragment_fn", None):
+            if SV_REGISTRY[sv.stitch_class].get("fragment_fn", None):
                 info_field['FRAGMENT_INTERVALS'] = ','.join(
                     [f'{frag.operation}: {frag.start}-{frag.end} ({frag.target_start}-{frag.target_end})' for frag in sv.fragments])
             if 'target' in vcf_info_dict:
@@ -353,14 +353,13 @@ def export_callset_to_vcf(filtered_svs, output_path, contigs, sep_frag_recs=Fals
 
 def diagnostics(input_recs, kept_svs, dropped_svs, dropped_reasons):
 
-    # -- filtering diagnostic by sv type and filter reason, log separately -- 
+    # -- filtering diagnostic by sv type and filter reason, log separately --
     counter_by_sv_type = Counter()
     counter_by_filter_reason = Counter()
 
     for csv, filter_reason in zip(dropped_svs, dropped_reasons):
         counter_by_sv_type[csv.sv_type] += 1
         counter_by_filter_reason[filter_reason] += 1
-
     logging.info("CSV filter diagnostics")
     for sv_type in sorted(counter_by_sv_type.keys()):
         filter_count = counter_by_sv_type[sv_type]
@@ -374,20 +373,19 @@ def diagnostics(input_recs, kept_svs, dropped_svs, dropped_reasons):
 
     # -- edge counter vs sv counter --
     logging.info("Edge classification vs stitched edges diagnostics")
-    edge_counter = defaultdict(Counter)
+    edge_counter = Counter()
     sv_counter = Counter()
 
     for rec in input_recs:
-        sv_type = re.sub("_\w$", "", rec.type)
-        edge_counter[sv_type][rec.type] += 1
+        edge_counter[rec.type] += 1
 
     for csv in kept_svs:
-        sv_counter[csv.sv_type] += 1
+        sv_counter[csv.stitch_class] += 1
 
     for sv_type in SV_REGISTRY:
-        edge_types = SV_REGISTRY[sv_type]['candidates']
-        edge_string = ", ".join([f'{edge}: {count}' for (edge, count) in edge_counter[sv_type].items()])
-
+        edge_types = list(SV_REGISTRY[sv_type]['candidates'].values())
+        edge_string = ", ".join([f'{edge_type}: {edge_counter[edge_type]}' for edge_type in SV_REGISTRY[sv_type]['candidates'].values()])
+        
         logging.info(f'-- {sv_type} --')
         logging.info(f'Expected edges: {edge_types}')
         logging.info(f'Num edges: {edge_string}')
@@ -459,7 +457,7 @@ def generate_merged_callset(input_recs, config):
     if config.complex_sv_unfiltered_file_path:
         export_callset_to_vcf(merged_svs, output_path=config.complex_sv_unfiltered_file_path,
                               contigs=config.fai_index.contigs(), sep_frag_recs=config.sep_frag_recs)
-        
+
     kept_svs = []
     dropped_svs = []
     dropped_reasons = []
@@ -480,7 +478,7 @@ def generate_merged_callset(input_recs, config):
             filter_reason = f"total sv length greater than {config.maximum_length}"
 
         elif smallest_fragment < config.minimum_fragment_length:
-            stitched_filter_logger.info( f"{csv} smallest fragment length {smallest_fragment} < config.minimum_fragment_length")
+            stitched_filter_logger.info( f"{csv} smallest fragment length {smallest_fragment} < config.minimum_fragment_length {config.minimum_fragment_length}")
             filter_reason = f"smallest fragment length < config.minimum_fragment_length"
 
         elif not csv.validated:
@@ -501,7 +499,7 @@ def generate_merged_callset(input_recs, config):
         dropped_reasons.extend(dropped_reasons_deduplication)
 
     if config.filter_overlaps:
-        kept_svs, recs_dropped_overlaps, dropped_reason_overlaps = filter_merged_svs(kept_svs, config.prioritize_evidence)
+        kept_svs, recs_dropped_overlaps, dropped_reason_overlaps = filter_overlapping_svs(kept_svs, config.prioritize_evidence)
         for dropped_csv in recs_dropped_overlaps:
             stitched_filter_logger.info(f"{dropped_csv} filtered from overlap filter")
         dropped_svs.extend(recs_dropped_overlaps)
@@ -515,7 +513,7 @@ def generate_merged_callset(input_recs, config):
     if config.unmatched_edge_file:
         matched_records = set()
         for csv in merged_svs:
-            for rec in csv.records:
+            for rec in csv.records.values():
                 matched_records.add((rec.chr1, rec.pos1, rec.pos2, rec.type))
 
         unmatched_recs = []
