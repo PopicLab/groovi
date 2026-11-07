@@ -52,15 +52,15 @@ class SVSignalProcessor:
             self.cues_index = self.cues.collect_bkps_from_bam(self.config.bam)
             junctions = self.cues_index.junctions
             logging.info("Total number of junctions: %d ", len(junctions))
-            junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
-            io.write_bkp_vcf(self.config.bkp_raw_vcf_file_path, junction_records, self.config.fai_index)
+            junction_records = [SVJunction.from_junction(j) for j in junctions]
+            io.write_junction_vcf(self.config.junction_raw_file, junction_records, self.config.fai_index)
         else:
-            junctions = [sv.to_junction() for sv in io.vcf_iter(self.config.bkp_raw_vcf_file_path)]
+            junctions = [sv.to_junction() for sv in io.vcf_iter(self.config.junction_raw_file)]
         if cluster:
             junctions = self.cluster_junctions(junctions)
             logging.info("Number of junctions after clustering: %d ", len(junctions))
-            junction_records = [SVBreakpoint.from_junction(j) for j in junctions]
-            io.write_bkp_vcf(self.config.bkp_cluster_vcf_file_path, junction_records, self.config.fai_index)
+            junction_records = [SVJunction.from_junction(j) for j in junctions]
+            io.write_junction_vcf(self.config.junction_cluster_file, junction_records, self.config.fai_index)
         return junctions
 
     def cluster_junctions(self, junctions):

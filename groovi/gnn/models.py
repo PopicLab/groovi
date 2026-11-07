@@ -1,18 +1,9 @@
-from groovi.gnn.modules import (
-    RelGraphConvLayer,
-    MLP,
-    GlobalAttentionPooling,
-)
 from groovi.graph.constants import *
-
 import dgl
-from dgl.nn import SumPooling, AvgPooling, MaxPooling, GlobalAttentionPooling
+from dgl.nn import RelGraphConv
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from dgl.nn import RelGraphConv
-
 
 class EdgeRepresentation(str, Enum):
     BASE = "BASE"
@@ -23,8 +14,8 @@ class EdgeRepresentation(str, Enum):
     NODEOPS = "NODEOPS"
 
 class NodeAugmentation(str, Enum):
-    RATIO = "RATIO"       # src / dst per edge type (mean over all neighbors)
-    DIFF  = "DIFF"        # src - dst per edge type (mean over all neighbors)
+    RATIO = "RATIO"
+    DIFF  = "DIFF"
 
 
 class NodeFeatureEncoder(nn.Module):
@@ -63,6 +54,7 @@ class EdgeFeatureEncoder(nn.Module):
         return self.proj(e) if self.proj is not None else e
 
 class RGCNCustomLayer(nn.Module):
+    #Based on https://www.dgl.ai/dgl_docs/en/2.4.x/_modules/dgl/nn/pytorch/conv/relgraphconv.html#RelGraphConv
     def __init__(self, in_dim, out_dim, n_edge_types, dropout=0.0, layer_norm=False, custom_update=True):
         super().__init__()
         self.custom_update = custom_update
@@ -77,7 +69,6 @@ class RGCNCustomLayer(nn.Module):
 
     def message(self, edges):
         m = self.linear(torch.cat([edges.src["h"], edges.data["efeat"]], dim=-1), edges.data[FEAT_TYPE])
-        #m = m * edges.data["efeat"] # standard rgcn scaling
         return {"m": m}
 
     def forward(self, g, nfeat, etypes, efeat):

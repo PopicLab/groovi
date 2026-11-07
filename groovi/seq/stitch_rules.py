@@ -1,230 +1,180 @@
-from collections import defaultdict
+from groovi.seq.sv import ComplexSV, JunctionStitchIndex
+from collections import defaultdict, Counter
+from functools import partial
 from dataclasses import replace
-from intervaltree import IntervalTree
+from groovi.seq.sv import FragmentOp
+import logging
+import warnings
 
-from groovi.seq.sv import Fragment
+def assemble_csvs(recs, tolerance=0):
+    junction_db = defaultdict(lambda: JunctionStitchIndex(buffer=tolerance + 1))
+    for rec in recs:
+        if rec.type not in KNOWN_EDGE_TYPES:
+            warnings.warn(f"Unknown SV type: {rec.type}")
+            continue
+        junction_db[rec.type].add(rec)
+    csvs = []
+    stitched_counts = Counter()
+    for stitch_class, spec in SV_REGISTRY.items():
+        edge_types = list(spec['candidates'].values())
+        if not all(t in junction_db for t in edge_types): continue
+        matches = spec['match_fn'](*(junction_db[t] for t in edge_types), tolerance=tolerance)
+        stitched_counts[stitch_class] = len(matches)
+        for match in matches:
+            chrom = match[0].chr1
+            qual = round(sum(rec.qual for rec in match) / len(match))
+            csvs.append(ComplexSV(spec, chrom, qual, match))
+    logging.debug("Edge stitching diagnostics")
+    edge_counts = Counter(rec.type for rec in recs)
+    for stitch_class, spec in SV_REGISTRY.items():
+        edge_types = list(spec['candidates'].values())
+        logging.debug(f'-- {stitch_class} --')
+        logging.debug(f'Num edges: {", ".join(f"{t}: {edge_counts[t]}" for t in edge_types)}')
+        logging.debug(f'Num stitched: {stitched_counts[stitch_class]}')
+    return csvs
 
 def approx_equal(a, b, threshold=0):
     return abs(a - b) <= threshold
 
 # Stitching functions
 
-def identity_match(trees, tolerance=0):
-    """
-    Default function to extract data from first IntervalTree
-    :param trees: list of trees. For this function, should only be one tree
-    :param tolerance: Unused
-    :return: list of records stored in tree values
-    """
-    return [[i.data] for i in trees[0]]
+def identity_match(index, tolerance=0):
+    return [[rec] for rec in index]
 
 
-def interlocking(left_tree, right_tree, tolerance=0, margin=0):
-    """
-    Finds the set of pairs where the left and right intervals interlock in order
-    """
-    interlocking_pairs = list()
-    for i_left in left_tree:
-        search_begin = i_left.begin - tolerance
-        search_end = i_left.end + tolerance
+def interlocks(first, second, tolerance=0, margin=0):
+    return (second.chr1, second.pos1) < (first.chr2, first.pos2 + tolerance) and \
+        (second.chr2, second.pos2) > (first.chr1, first.pos1 - tolerance) and \
+        (first.chr1, first.pos1 + margin) <= (second.chr1, second.pos1 + tolerance) and \
+        (first.chr2, first.pos2 + margin) <= (second.chr2, second.pos2 + tolerance)
 
-        candidates = right_tree.overlap(search_begin, search_end)
 
-        for i_right in candidates:
-            if i_right is i_left:  # skip self-matches
+def envelops(outer, inner, tolerance=0):
+    return (inner.chr1, inner.pos1) >= (outer.chr1, outer.pos1 - tolerance) and \
+        (inner.chr2, inner.pos2) <= (outer.chr2, outer.pos2 + tolerance)
+
+
+def interlock(first_index, second_index, tolerance=0, margin=0):
+    return [(first, second)
+            for first in first_index
+            for second in second_index.overlapping(first.chr1, first.pos1 - tolerance, first.pos2 + tolerance)
+            if second is not first and interlocks(first, second, tolerance, margin)]
+
+
+def envelop(outer_index, inner_index, tolerance=0):
+    return [(outer, inner)
+            for outer in outer_index
+            for inner in inner_index.enveloped(outer.chr1, outer.pos1 - tolerance, outer.pos2 + tolerance)]
+
+
+def adjacent_pairs(first_index, second_index, related, tolerance=0, side='either'):
+    pairs = []
+    for first in first_index:
+        candidates = set()
+        if side in ('start', 'both', 'either'):
+            candidates |= second_index.near(first.chr1, first.pos1)
+        if side in ('end', 'either'):
+            candidates |= second_index.near(first.chr2, first.pos2)
+
+        for second in candidates:
+            if second is first or not related(first, second, tolerance):
                 continue
-            # Check if the left interval starts before the right, plus a margin of error.
-            if i_left.begin + margin <= i_right.begin + tolerance and i_left.end + margin <= i_right.end + tolerance:
-                interlocking_pairs.append((i_left.data, i_right.data))
-
-    return interlocking_pairs
-
-
-def left_right_adjacent(pairs, tolerance=0, side='either'):
-    """
-    Filters a set of interval pairs to entries where the left and/or right edges are within 1 position (within tolerance)
-    :param pairs: iterable of interval pairs
-    :param tolerance: Maximum distance positions can be to be considered adjacent
-    :param side: 'start', 'end', 'both', or 'either'. 'start' and 'end' return cases where the start or ends are adjacent,
-                'both' returns cases where both start and end are adjacent. 'either' returns when either start or end are adjacent
-    :return: list of interval pairs fitting adjacency criteria
-    """
-    adjacent_pairs = []
-
-    start = side in ['start', 'either']
-    end = side in ['end', 'either']
-    both = side == 'both'
-
-    for i_left, i_right in pairs:
-        left_adj = approx_equal(abs(i_right.pos1 - i_left.pos1), 1, tolerance)
-        right_adj = approx_equal(abs(i_right.pos2 - i_left.pos2), 1, tolerance)
-        if both and left_adj and right_adj or \
-            start and left_adj or \
-            end and right_adj:
-            adjacent_pairs.append((i_left, i_right))
-    return adjacent_pairs
+            starts_adjacent = first.chr1 == second.chr1 and approx_equal(abs(second.pos1 - first.pos1), 1, tolerance)
+            ends_adjacent = first.chr2 == second.chr2 and approx_equal(abs(second.pos2 - first.pos2), 1, tolerance)
+            if side == 'start' and starts_adjacent or \
+                    side == 'end' and ends_adjacent or \
+                    side == 'both' and starts_adjacent and ends_adjacent or \
+                    side == 'either' and (starts_adjacent or ends_adjacent):
+                pairs.append((first, second))
+    return pairs
 
 
-def interlocking_adjacent(left_tree, right_tree, tolerance=0, side='either'):
-    """
-    Finds the set of pairs where left and right intervals interlock and the starts or ends are adjacent
-    """
-    interlocking_pairs = interlocking(left_tree, right_tree, tolerance)
-    adjacent_pairs = left_right_adjacent(interlocking_pairs, tolerance, side)
-    return adjacent_pairs
+def interlocking_adjacent(first_index, second_index, tolerance=0, side='either'):
+    return adjacent_pairs(first_index, second_index, interlocks, tolerance, side)
 
 
-def match_ddup_inv(interval_trees, tolerance=0, side='end'):
-    """
-    dDUP_INV has four record types A, B, C, D with A and B interlocking adjacent on both sides and C enveloping D,
-    adjacent at the target on `side`: 'end' when the target is downstream of the AB region (B and C share a start),
-    'start' when it is upstream (A and C share an end).
-    """
-    matches = []
-
-    ab_pairs = interlocking_adjacent(interval_trees[0], interval_trees[1], tolerance=tolerance, side='both')
-    cd_pairs = envelop_adjacent(interval_trees[2], interval_trees[3], tolerance, side=side)
-
-    cd_tree = IntervalTree.from_tuples([(min(c.pos1, d.pos1), max(c.pos2, d.pos2), (c, d)) for c, d in cd_pairs])
-
-    for a, b in ab_pairs:
-        candidates = cd_tree.overlap(min(a.pos1, b.pos1) - tolerance, max(a.pos2, b.pos2) + tolerance)
-        for cd in candidates:
-            c, d = cd.data
-            if side == 'end' and approx_equal(b.pos1, c.pos1, tolerance) and c.pos2 > b.pos2 or \
-                side == 'start' and approx_equal(a.pos2, c.pos2, tolerance) and c.pos1 < a.pos1:
-                matches.append([a, b, c, d])
-
-    return matches
+def envelop_adjacent(outer_index, inner_index, tolerance=0, side='either'):
+    return adjacent_pairs(outer_index, inner_index, envelops, tolerance, side)
 
 
-def match_nrtra(a_tree, b_tree, c_tree, tolerance=0):
-    """
-    Matches the nrTRA structure, which has two interlocking nrTRA-A intervals that overlap by one, and a nrTRA-B
-    interval that is enclosed by and adjacent to the outer boundaries of the two nrTRA-A intervals.
-    """
-
-    interlocking_pairs = interlocking(a_tree, c_tree, tolerance)
-    relevant_pairs = [(left, right) for left, right in interlocking_pairs
-                      if approx_equal(left.pos2 - right.pos1, 1, tolerance)]
-
-    matches = []
-
-    for left, right in relevant_pairs:
-        candidates = b_tree.envelop(left.pos1 - tolerance, right.pos2 + tolerance)
-
-        for b in candidates:
-            if approx_equal(left.pos1 + 1, b.data.pos1, tolerance) and approx_equal(right.pos2, b.data.pos2 + 1, tolerance):
-                matches.append([left, b.data, right])
-
-    return matches
-
-
-def interlocking_intersection(left_tree, middle_tree, right_tree, tolerance=0):
-    """
-    Finds the set of intervals where the left and right interval interlock, and the middle interval is the intersection
-    """
-
-    interlocking_pairs = interlocking(left_tree, right_tree, tolerance)
-
+def interlocking_intersection(first_index, middle_index, second_index, tolerance=0):
     valid_triples = []
-
-    for i_left, i_right in interlocking_pairs:
-
-        candidates = middle_tree.overlap(i_right.pos1 - tolerance, i_left.pos2 + tolerance)
-
-        for i_middle in candidates:
-            if approx_equal(i_middle.begin, i_right.pos1, tolerance) and approx_equal(i_middle.end, i_left.pos2, tolerance):
-                valid_triples.append((i_left, i_middle.data, i_right))
+    for first, second in interlock(first_index, second_index, tolerance):
+        for middle in middle_index.near(second.chr1, second.pos1):
+            if middle.chr1 == second.chr1 and approx_equal(middle.pos1, second.pos1, tolerance) and \
+                    middle.chr2 == first.chr2 and approx_equal(middle.pos2, first.pos2, tolerance):
+                valid_triples.append((first, middle, second))
     return valid_triples
 
 
-def envelop(left_tree, right_tree, tolerance=0):
-    """
-    Finds the pairs where intervals from the right tree are enveloped by intervals in the left tree
-    """
-    valid_pairs = []
-    for i_left in left_tree:
-        matches = right_tree.envelop(i_left.begin - tolerance, i_left.end + tolerance)
-        valid_pairs += [(i_left.data, i_right.data) for i_right in matches]
+def match_ddup_inv(a_index, b_index, c_index, d_index, tolerance=0, side='end'):
+    ds_by_c = defaultdict(list)
+    for c, d in envelop_adjacent(c_index, d_index, tolerance, side=side):
+        ds_by_c[c].append(d)
 
-    return valid_pairs
-
-
-def envelop_adjacent(left_tree, right_tree, tolerance=0, side='either'):
-    """
-    Finds the pairs of intervals where the left interval envelops the right interval and
-    the one set of endpoints are adjacent to each other
-    """
-    valid_pairs = envelop(left_tree, right_tree, tolerance)
-    return left_right_adjacent(valid_pairs, tolerance, side)
-
-
-def match_inv_nrtra(trees, tolerance=0, side='end'):
-    """
-    Seeks triples where B and C intervals are envelop adjacent at the target on `side` ('end' when the target is
-    downstream of the source, 'start' when upstream), and A surrounds the non-adjacent endpoints of B and C
-    """
     matches = []
-
-    bc_pairs = envelop_adjacent(trees[1], trees[2], tolerance, side=side)
-
-    for b, c in bc_pairs:
+    for a, b in interlocking_adjacent(a_index, b_index, tolerance, side='both'):
         if side == 'end':
-            target_interval = (b.pos1, c.pos1)
+            cs = [c for c in c_index.near(b.chr1, b.pos1)
+                  if c.chr1 == b.chr1 and approx_equal(c.pos1, b.pos1, tolerance) and (c.chr2, c.pos2) > (b.chr2, b.pos2)]
         else:
-            target_interval = (c.pos2, b.pos2)
+            cs = [c for c in c_index.near(a.chr2, a.pos2)
+                  if c.chr2 == a.chr2 and approx_equal(c.pos2, a.pos2, tolerance) and (c.chr1, c.pos1) < (a.chr1, a.pos1)]
+        matches += [[a, b, c, d] for c in cs for d in ds_by_c.get(c, ())]
+    return matches
 
-        candidates = trees[0].overlap(target_interval[0], target_interval[1])
 
-        for a_interval in candidates:
-            a = a_interval.data
-            if approx_equal(target_interval[0] - 1, a.pos1, tolerance) and approx_equal(target_interval[1] + 1, a.pos2, tolerance):
+def match_nrtra(a1_index, b_index, a2_index, tolerance=0):
+    matches = []
+    for a1 in a1_index:
+        for a2 in a2_index.near(a1.chr2, a1.pos2):
+            if a2 is a1 or not interlocks(a1, a2, tolerance) or \
+                    a2.chr1 != a1.chr2 or not approx_equal(a1.pos2 - a2.pos1, 1, tolerance):
+                continue
+            for b in b_index.near(a1.chr1, a1.pos1):
+                if b.chr1 == a1.chr1 and approx_equal(b.pos1 - a1.pos1, 1, tolerance) and \
+                        b.chr2 == a2.chr2 and approx_equal(a2.pos2 - b.pos2, 1, tolerance):
+                    matches.append([a1, b, a2])
+    return matches
+
+
+def match_inv_nrtra(a_index, b_index, c_index, tolerance=0, side='end'):
+    matches = []
+    for b, c in envelop_adjacent(b_index, c_index, tolerance, side=side):
+        if side == 'end':
+            (target_chrom, target_start), (target_end_chrom, target_end) = (b.chr1, b.pos1), (c.chr1, c.pos1)
+        else:
+            (target_chrom, target_start), (target_end_chrom, target_end) = (c.chr2, c.pos2), (b.chr2, b.pos2)
+        if target_chrom != target_end_chrom or target_start >= target_end:
+            continue
+
+        for a in a_index.near(target_chrom, target_start):
+            if a.chr1 == a.chr2 == target_chrom and a.pos1 < target_end and a.pos2 > target_start and \
+                    approx_equal(target_start - a.pos1, 1, tolerance) and approx_equal(a.pos2 - target_end, 1, tolerance):
                 matches.append([a, b, c])
     return matches
 
-def match_ddup_inv_left(trees, tolerance=0):
-    """
-    dDUP_INV with the target upstream of the source has edges E, F (dispersion) and G, H (inversion): the same
-    structure as A, B, C, D with the pairs swapped. Returns [E, F, G, H].
-    """
-    return [[e, f, g, h] for g, h, e, f in match_ddup_inv([trees[2], trees[3], trees[0], trees[1]], tolerance, side='start')]
-
-
-def match_inv_nrtra_left(trees, tolerance=0):
-    """
-    INV_nrTRA with the target upstream of the source has edges D, E (dispersion) and F (deletion): the same
-    structure as A, B, C with the deletion edge last. Returns [D, E, F].
-    """
-    return [[d, e, f] for f, d, e in match_inv_nrtra([trees[2], trees[0], trees[1]], tolerance, side='start')]
+def match_inv_nrtra_left(b_index, c_index, a_index, tolerance=0):
+    return [[b, c, a] for a, b, c in match_inv_nrtra(a_index, b_index, c_index, tolerance, side='start')]
 
 
 def nrtra_source_choices(csv):
-    """
-    nrTRA edges are not direction-specific (A, B, A), so the graph is symmetric and the source could be either side
-    of the B edge. Returns the CUT-PASTE fragment for each choice, shorter source first.
-    """
     a1, b, a2 = csv.records['A1'], csv.records['B'], csv.records['A2']
     candidates = [(b.pos1, a2.pos1, b.pos2 + 1, b.chr2),
                   (a1.pos2, b.pos2, a1.pos1 + 1, a1.chr1)]
-    return [Fragment(chrom=csv.chrom, start=source_start, end=source_end + 1,
-                     target_chrom=target_chrom, target_start=target, target_end=target + 1,
-                     operation='CUT-PASTE')
+    return [FragmentOp(chrom=csv.chrom, start=source_start, end=source_end + 1,
+                       target_chrom=target_chrom, target_start=target, target_end=target + 1,
+                       operation='CUT-PASTE')
             for source_start, source_end, target, target_chrom in sorted(candidates, key=lambda t: t[1] - t[0])]
 
 
 def nrtra_fragments(csv):
-    """
-    Uses the heuristic that the nrTRA source is the shorter of the two possible segments.
-    """
     return nrtra_source_choices(csv)[:1]
 
 
 def nrtra_alternative_grammars(csv):
-    """
-    The other source choice of the symmetric nrTRA edges, with its grammar.
-    """
-    return [(SV_REGISTRY['nrTRA']['grammar']['left' if frag.target_start < frag.start else 'right'], [frag])
+    return [(SV_REGISTRY['nrTRA']['grammar']['left' if (frag.target_chrom, frag.target_start) < (frag.chrom, frag.start)
+                                             else 'right'], [frag])
             for frag in nrtra_source_choices(csv)[1:]]
 
 
@@ -242,7 +192,7 @@ def inv_ddup_alternative_grammars(csv):
         spacer_start, spacer_end, grammar = source.target_start, source.start, 'AB->baB'
     else:
         return []
-    return [(grammar, [source, Fragment(chrom=csv.chrom, start=spacer_start, end=spacer_end, operation='INV')])]
+    return [(grammar, [source, FragmentOp(chrom=csv.chrom, start=spacer_start, end=spacer_end, operation='INV')])]
 
 def dupinvdup_alternative_grammars(csv):
     """
@@ -259,25 +209,11 @@ def dupinvdup_alternative_grammars(csv):
                             replace(a, operation='COPY-PASTE', **after_a, insord=1)])]
 
 # Validation methods
-def validate_non_inter_chromosomal(csv):
-    """
-    Checks every fragment with a target is on the SV's chromosome
-    """
-    if not csv.fragments:
-        return True
-    chrom = csv.fragments[0].chrom
-    return all(chrom == frag.chrom == frag.target_chrom for frag in csv.fragments if frag.target_chrom)
 
 def validate_positive_lengths(csv):
-    """
-    Checks every fragment interval is strictly positive in length
-    """
     return all(frag.end > frag.start for frag in csv.fragments)
 
 def validate_contiguous_segments(csv):
-    """
-    Checks fragment intervals form a contiguous sequence of segments
-    """
     intervals = sorted(set((frag.start, frag.end) for frag in csv.fragments))
     return all(end == next_start for (_, end), (next_start, _) in zip(intervals, intervals[1:]))
 
@@ -312,58 +248,57 @@ def validate_no_split_segments(csv):
     'direction': 'right' or 'left' for directional entries (None). nrTRA's grammar is a dict {'right', 'left'}
                  resolved from its fragments, since its edges are not direction-specific.
     'candidates': ordered dict role -> edge type; fragment_fn reads records by role (csv.records[role])
-    'match_fn': (trees, tolerance) -> record lists, one tree per candidate and each list in candidate order
+    'match_fn': (*indexes, tolerance) -> record lists, called with one JunctionIndex per candidate in candidate order;
+                each list is in candidate order
     'op_name': Replacement SV name for BED output (SV name)
     'fragment_fn': function to compute fragments (None)
     'alternative_grammars_fn': csv -> [(grammar, fragments)], the other grammars the same breakpoints admit (None)
-    'start_stop_fn': function to compute start and stop of VCF entry (None)
 """
 SV_REGISTRY = {
     'DEL': {
         'grammar': 'A->',
         'candidates': {'A': 'DEL'},
         'op_name': 'CUT',
-        'match_fn': lambda x, tolerance: identity_match(x, tolerance),
+        'match_fn': identity_match,
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.records['A'].chr1, start=csv.records['A'].pos1 + 1, end=csv.records['A'].pos2, operation='CUT'),
+            FragmentOp(chrom=csv.records['A'].chr1, start=csv.records['A'].pos1 + 1, end=csv.records['A'].pos2,
+                       operation='CUT'),
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints] 
+        'validation_fns': [validate_positive_lengths, validate_targets_on_breakpoints]
     },
     'INV': {
         'grammar': 'A->a',
         'candidates': {'A': 'INV_A', 'B': 'INV_B'},
-        'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, 'both'),
+        'match_fn': partial(interlocking_adjacent, side='both'),
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.records['A'].chr1, start=csv.records['A'].pos1 + 1, end=csv.records['A'].pos2 + 1,
-                     operation='INV'),
+            FragmentOp(chrom=csv.records['A'].chr1, start=csv.records['A'].pos1 + 1, end=csv.records['A'].pos2 + 1,
+                       operation='INV'),
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_targets_on_breakpoints]
     },
     'DUP': {
         'grammar': 'A->AA',
         'candidates': {'A': 'DUP'},
-        'match_fn': lambda x, tolerance: identity_match(x, tolerance),
+        'match_fn': identity_match,
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.records['A'].chr1, start=csv.records['A'].pos1, end=csv.records['A'].pos2 + 1,
-                     operation='DUP'),
+            FragmentOp(chrom=csv.records['A'].chr1, start=csv.records['A'].pos1, end=csv.records['A'].pos2 + 1,
+                       operation='DUP'),
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_targets_on_breakpoints]
     },
     'DUP_INV': {
         'grammar': 'A->aa',
         'candidates': {'A': 'DUP_INV_A', 'B': 'DUP_INV_B', 'C': 'DUP_INV_C'},
-        'match_fn': lambda x, tolerance: interlocking_intersection(x[0], x[1], x[2], tolerance),
+        'match_fn': interlocking_intersection,
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.records['B'].chr1, start=csv.records['B'].pos1, end=csv.records['B'].pos2 + 1, operation='INV'),
-            Fragment(chrom=csv.records['B'].chr1, start=csv.records['B'].pos1, end=csv.records['B'].pos2 + 1,
-                     target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1, target_end=csv.records['B'].pos2 + 2,
-                     operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.records['B'].chr1, start=csv.records['B'].pos1, end=csv.records['B'].pos2 + 1,
+                       operation='INV'),
+            FragmentOp(chrom=csv.records['B'].chr1, start=csv.records['B'].pos1, end=csv.records['B'].pos2 + 1,
+                       target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1,
+                       target_end=csv.records['B'].pos2 + 2,
+                       operation='COPYinv-PASTE'),
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_targets_on_breakpoints]
     },
     'dDUP_right': {
         'sv_type': 'dDUP',
@@ -372,12 +307,12 @@ SV_REGISTRY = {
         'op_name': 'DUP',
         'dispersion': True,
         'candidates': {'A': 'dDUP_A', 'B': 'dDUP_B'},
-        'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, side='end'),
+        'match_fn': partial(interlocking_adjacent, side='end'),
         'fragment_fn': lambda csv: [
             # TODO: Resolve target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
-                     target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos2 + 1,
-                     target_end=csv.records['A'].pos2 + 2, operation='COPY-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
+                       target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos2 + 1,
+                       target_end=csv.records['A'].pos2 + 2, operation='COPY-PASTE')
         ],
         'validation_fns': [validate_no_split_segments]
     },
@@ -387,20 +322,19 @@ SV_REGISTRY = {
         'grammar': '_A->A_A',
         'op_name': 'DUP',
         'dispersion': True,
-        # 'candidates': {'C': 'dDUP_C', 'D': 'dDUP_D'},
         'candidates': {'B': 'dDUP_B', 'A': 'dDUP_A'},
-        'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, side='start'),
+        'match_fn': partial(interlocking_adjacent, side='start'),
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
-                                 target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1,
-                                 target_end=csv.records['B'].pos1 + 2, operation='COPY-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
+                       target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1,
+                       target_end=csv.records['B'].pos1 + 2, operation='COPY-PASTE')
         ],
         'validation_fns': [validate_no_split_segments]
     },
     'nrTRA': {
         'grammar': {'right': 'A_->_A', 'left': '_A->A_'},
         'candidates': {'A1': 'nrTRA_A', 'B': 'nrTRA_B', 'A2': 'nrTRA_A'},
-        'match_fn': lambda x, tolerance: match_nrtra(x[0], x[1], x[2], tolerance),
+        'match_fn': match_nrtra,
         'dispersion': True,
         'fragment_fn': nrtra_fragments,
         'alternative_grammars_fn': nrtra_alternative_grammars,
@@ -411,13 +345,13 @@ SV_REGISTRY = {
         'direction': 'right',
         'grammar': 'A_->_a',
         'candidates': {'A': 'INV_nrTRA_A', 'B': 'INV_nrTRA_B', 'C': 'INV_nrTRA_C'},
-        'match_fn': lambda x, tolerance: match_inv_nrtra(x, tolerance, side='end'),
+        'match_fn': partial(match_inv_nrtra, side='end'),
         'dispersion': True,
         'fragment_fn': lambda csv: [
             # TODO: Resolve source and target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['C'].pos1 + 1,
-                     target_chrom=csv.records['C'].chr2, target_start=csv.records['C'].pos2 + 1,
-                     target_end=csv.records['C'].pos2 + 2, operation='CUTinv-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['C'].pos1 + 1,
+                       target_chrom=csv.records['C'].chr2, target_start=csv.records['C'].pos2 + 1,
+                       target_end=csv.records['C'].pos2 + 2, operation='CUTinv-PASTE')
         ],
         'validation_fns': [validate_no_split_segments]
     },
@@ -425,15 +359,14 @@ SV_REGISTRY = {
         'sv_type': 'INV_nrTRA',
         'direction': 'left',
         'grammar': '_A->a_',
-        # 'candidates': {'D': 'INV_nrTRA_D', 'E': 'INV_nrTRA_E', 'F': 'INV_nrTRA_F'},
         'candidates': {'B': 'INV_nrTRA_B', 'C': 'INV_nrTRA_C', 'A': 'INV_nrTRA_A'},
         'match_fn': match_inv_nrtra_left,
         'dispersion': True,
         'fragment_fn': lambda csv: [
             # TODO: Resolve source and target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['C'].pos2, end=csv.records['B'].pos2 + 1,
-                     target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1,
-                     target_end=csv.records['B'].pos1 + 2, operation='CUTinv-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['C'].pos2, end=csv.records['B'].pos2 + 1,
+                       target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1,
+                       target_end=csv.records['B'].pos1 + 2, operation='CUTinv-PASTE')
         ],
         'validation_fns': [validate_no_split_segments]
     },
@@ -442,13 +375,13 @@ SV_REGISTRY = {
         'direction': 'right',
         'grammar': 'A_->A_a',
         'candidates': {'A': 'INV_dDUP_A', 'B': 'INV_dDUP_B'},
-        'match_fn': lambda x, tolerance: envelop_adjacent(x[0], x[1], tolerance, side='end'),
+        'match_fn': partial(envelop_adjacent, side='end'),
         'dispersion': True,
         'fragment_fn': lambda csv: [
             # TODO: Resolve target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
-                     target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1,
-                     target_end=csv.records['B'].pos2 + 2, operation='COPYinv-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
+                       target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1,
+                       target_end=csv.records['B'].pos2 + 2, operation='COPYinv-PASTE')
         ],
         'alternative_grammars_fn': inv_ddup_alternative_grammars,
         'validation_fns': [validate_no_split_segments]
@@ -458,190 +391,143 @@ SV_REGISTRY = {
         'direction': 'left',
         'grammar': '_A->a_A',
         'candidates': {'A': 'INV_dDUP_A', 'B': 'INV_dDUP_B'},
-        # 'candidates': {'C': 'INV_dDUP_C', 'D': 'INV_dDUP_D'},
-        'match_fn': lambda x, tolerance: envelop_adjacent(x[0], x[1], tolerance, side='start'),
+        'match_fn': partial(envelop_adjacent, side='start'),
         'dispersion': True,
         'fragment_fn': lambda csv: [
             # TODO: Resolve target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
-                                 target_chrom=csv.records['A'].chr1, target_start=csv.records['A'].pos1 + 1,
-                                 target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
+                       target_chrom=csv.records['A'].chr1, target_start=csv.records['A'].pos1 + 1,
+                       target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE')
         ],
         'alternative_grammars_fn': inv_ddup_alternative_grammars,
-        'validation_fns': [validate_no_split_segments]
-    },
-    'dDUP_INV_right': {
-        'sv_type': 'dDUP_INV',
-        'direction': 'right',
-        'grammar': 'A_->a_a',
-        'candidates': {'A': 'dDUP_INV_A', 'B': 'dDUP_INV_B', 'C': 'dDUP_INV_C', 'D': 'dDUP_INV_D'},
-        'match_fn': lambda x, tolerance: match_ddup_inv(x, tolerance, side='end'),
-        'dispersion': True,
-        'fragment_fn': lambda csv: [
-            # TODO: Resolve source and target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2,
-                     target_chrom=csv.records['D'].chr2, target_start=csv.records['D'].pos2 + 1,
-                     target_end=csv.records['D'].pos2 + 2, operation='COPYinv-PASTE'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV')
-        ],
-        'validation_fns': [validate_no_split_segments]
-    },
-    'dDUP_INV_left': {
-        'sv_type': 'dDUP_INV',
-        'direction': 'left',
-        'grammar': '_A->a_a',
-        'candidates': {'E': 'dDUP_INV_E', 'F': 'dDUP_INV_F', 'G': 'dDUP_INV_G', 'H': 'dDUP_INV_H'},
-        'match_fn': match_ddup_inv_left,
-        'dispersion': True,
-        'fragment_fn': lambda csv: [
-            # TODO: Resolve source and target ambiguity by evidence
-            Fragment(chrom=csv.chrom, start=csv.records['H'].pos1, end=csv.records['H'].pos2,
-                     target_chrom=csv.records['E'].chr1, target_start=csv.records['E'].pos1 + 1,
-                     target_end=csv.records['E'].pos1 + 2, operation='COPYinv-PASTE'),
-            Fragment(chrom=csv.chrom, start=csv.records['H'].pos1, end=csv.records['H'].pos2, operation='INV')
-        ],
         'validation_fns': [validate_no_split_segments]
     },
     'dupINVdel': {
         'grammar': 'ABC->Aba', #Acba
         'candidates': {'A': 'dupINVdel_A', 'B': 'dupINVdel_B'},
-        'match_fn': lambda x, tolerance: envelop(x[0], x[1], tolerance),
+        'match_fn': envelop,
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
-                     target_chrom=csv.records['A'].chr2, target_start=csv.records['B'].pos2 + 1, target_end=csv.records['B'].pos2 + 2,
-                     operation='COPYinv-PASTE'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['B'].pos2 + 1, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos2 + 1, end=csv.records['A'].pos2, operation='CUT'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
+                       target_chrom=csv.records['A'].chr2, target_start=csv.records['B'].pos2 + 1, target_end=csv.records['B'].pos2 + 2,
+                       operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['B'].pos2 + 1, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos2 + 1, end=csv.records['A'].pos2, operation='CUT'),
         ],
         'alternative_grammars_fn': lambda csv: [
             ('ABC->ABa', [replace(frag, operation='KEEP') if frag.operation == 'INV' else frag
                           for frag in csv.fragments])
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'delINVdup': {
         'grammar': 'ABC->cbC',
         'candidates': {'A': 'delINVdup_A', 'B': 'delINVdup_B'},
-        'match_fn': lambda x, tolerance: envelop(x[0], x[1], tolerance),
+        'match_fn': envelop,
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
-                     target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos1 + 1,
-                     target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
+                       target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos1 + 1,
+                       target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE'),
         ],
         'alternative_grammars_fn': lambda csv: [
             ('ABC->cBC', [replace(frag, operation='KEEP') if frag.operation == 'INV' else frag
                           for frag in csv.fragments])
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'delINVdel': {
         'grammar': 'ABC->b',
         'candidates': {'A': 'delINVdel_A', 'B': 'delINVdel_B'},
-        'match_fn': lambda x, tolerance: interlocking(x[0], x[1], tolerance, margin=1),
+        'match_fn': partial(interlock, margin=1),
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['A'].pos2 + 1, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos2 + 1, end=csv.records['B'].pos2, operation='CUT')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['A'].pos2 + 1, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos2 + 1, end=csv.records['B'].pos2, operation='CUT')
         ],
         'is_self_matching': True,
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'dupINVdup': {
         'grammar': 'ABC->AcbaC',
         'candidates': {'A': 'dupINVdup_A', 'B': 'dupINVdup_B'},
-        'match_fn': lambda x, tolerance: interlocking(x[0], x[1], tolerance),
+        'match_fn': interlock,
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
-                     target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos2,
-                     target_end=csv.records['A'].pos2 + 1, operation='COPYinv-PASTE'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['A'].pos2, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos2, end=csv.records['B'].pos2 + 1,
-                     target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1, target_end=csv.records['B'].pos1 + 2,
-                     operation='COPYinv-PASTE')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
+                       target_chrom=csv.records['A'].chr2, target_start=csv.records['A'].pos2,
+                       target_end=csv.records['A'].pos2 + 1, operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['A'].pos2, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos2, end=csv.records['B'].pos2 + 1,
+                       target_chrom=csv.records['B'].chr1, target_start=csv.records['B'].pos1 + 1, target_end=csv.records['B'].pos1 + 2,
+                       operation='COPYinv-PASTE')
         ],
         'alternative_grammars_fn': dupinvdup_alternative_grammars,
         'is_self_matching': True,
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'delINV': {
         'grammar': 'AB->b',
         'candidates': {'A': 'delINV_A', 'B': 'delINV_B'},
-        'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, 'end'),
+        'match_fn': partial(interlocking_adjacent, side='end'),
         'fragment_fn': lambda csv:
         [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['A'].pos2 + 1, operation='INV')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['A'].pos2 + 1, operation='INV')
         ] if csv.records['A'].evidence >= csv.records['B'].evidence else [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos1, operation='CUT'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV')
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'INVdel': {
         'grammar': 'AB->a',
         'candidates': {'A': 'INVdel_A', 'B': 'INVdel_B'},
-        'match_fn': lambda x, tolerance: interlocking_adjacent(x[0], x[1], tolerance, 'start'),
+        'match_fn': partial(interlocking_adjacent, side='start'),
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['A'].pos2 + 1, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos2 + 1, end=csv.records['B'].pos2, operation='CUT')
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['A'].pos2 + 1, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos2 + 1, end=csv.records['B'].pos2, operation='CUT')
         ] if csv.records['A'].evidence >= csv.records['B'].evidence else [
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['A'].pos2 + 1, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos2 + 1, end=csv.records['B'].pos2, operation='CUT')
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['A'].pos2 + 1, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos2 + 1, end=csv.records['B'].pos2, operation='CUT')
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'dupINV': {
         'grammar': 'AB->Aba',
         'candidates': {'A': 'dupINV_A', 'B': 'dupINV_B'},
-        'match_fn': lambda x, tolerance: envelop_adjacent(x[0], x[1], tolerance, side='end'),
+        'match_fn': partial(envelop_adjacent, side='end'),
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
-                     target_chrom=csv.records['B'].chr2, target_start=csv.records['A'].pos2,
-                     target_end=csv.records['A'].pos2 + 1, operation='COPYinv-PASTE'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['A'].pos2, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
+                       target_chrom=csv.records['B'].chr2, target_start=csv.records['A'].pos2,
+                       target_end=csv.records['A'].pos2 + 1, operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['A'].pos2, operation='INV'),
         ] if csv.records['A'].evidence >= csv.records['B'].evidence else [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
-                     target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1,
-                     target_end=csv.records['B'].pos2 + 2, operation='COPYinv-PASTE'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['B'].pos2 + 1, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1, end=csv.records['B'].pos1 + 1,
+                       target_chrom=csv.records['B'].chr2, target_start=csv.records['B'].pos2 + 1,
+                       target_end=csv.records['B'].pos2 + 2, operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1 + 1, end=csv.records['B'].pos2 + 1, operation='INV'),
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     },
     'INVdup': {
         'grammar': 'AB->baB',
         'candidates': {'A': 'INVdup_A', 'B': 'INVdup_B'},
-        'match_fn': lambda x, tolerance: envelop_adjacent(x[0], x[1], tolerance, side='start'),
+        'match_fn': partial(envelop_adjacent, side='start'),
         'fragment_fn': lambda csv: [
-            Fragment(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos2, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
-                     target_chrom=csv.chrom, target_start=csv.records['A'].pos1 + 1,
-                     target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['A'].pos1 + 1, end=csv.records['B'].pos2, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
+                       target_chrom=csv.chrom, target_start=csv.records['A'].pos1 + 1,
+                       target_end=csv.records['A'].pos1 + 2, operation='COPYinv-PASTE'),
         ] if csv.records['A'].evidence >= csv.records['B'].evidence else [
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV'),
-            Fragment(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
-                     target_chrom=csv.chrom, target_start=csv.records['B'].pos1,
-                     target_end=csv.records['B'].pos1 + 1, operation='COPYinv-PASTE'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos1, end=csv.records['B'].pos2, operation='INV'),
+            FragmentOp(chrom=csv.chrom, start=csv.records['B'].pos2, end=csv.records['A'].pos2 + 1,
+                       target_chrom=csv.chrom, target_start=csv.records['B'].pos1,
+                       target_end=csv.records['B'].pos1 + 1, operation='COPYinv-PASTE'),
         ],
-        'validation_fns': [validate_non_inter_chromosomal, validate_positive_lengths,
-                           validate_contiguous_segments, validate_targets_on_breakpoints]
+        'validation_fns': [validate_positive_lengths, validate_contiguous_segments, validate_targets_on_breakpoints]
     }
 }
 
-# EDGE_TYPE_TO_PATTERN = {edge_type: pattern
-#                         for pattern, entry in SV_REGISTRY.items()
-#                         for edge_type in entry['candidates'].values()}
-
-EDGE_TYPE_TO_STITCH_CLASSES = defaultdict(list)
 for pattern, entry in SV_REGISTRY.items():
-    for edge_type in entry['candidates'].values():
-        EDGE_TYPE_TO_STITCH_CLASSES[edge_type].append(pattern)
-EDGE_TYPE_TO_STITCH_CLASSES = dict(EDGE_TYPE_TO_STITCH_CLASSES)
+    entry.setdefault('sv_type', pattern)
+KNOWN_EDGE_TYPES = {t for spec in SV_REGISTRY.values() for t in spec['candidates'].values()}

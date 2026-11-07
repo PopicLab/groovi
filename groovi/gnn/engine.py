@@ -1,10 +1,12 @@
 from groovi.seq.sv import *
+from groovi.graph.visualize import visualize_groovi_graph
 import logging
 import matplotlib.pyplot as plt
 import os
 from sklearn.metrics import *
 import torch
 from tensorboardX import SummaryWriter
+
 
 ###########################
 # Training Utilities
@@ -129,6 +131,12 @@ def evaluate(config, model, graph):
                 qual = 0
             else:
                 qual = int(float(prob.item() * 100))
-            classified_edges.append(SVBreakpoint(sv_type, node_src.chr_name, node_src.ref_pos,
-                                                 node_dst.chr_name, node_dst.ref_pos, qual,(None, None), count.item()))
+            classified_edges.append(SVJunction(sv_type, node_src.chr_name, node_src.ref_pos,
+                                               node_dst.chr_name, node_dst.ref_pos, qual, (None, None), count.item()))
+
+    if config.visualize_graphs: visualize_groovi_graph(config, graph, os.path.join(config.img_dir,
+                                                                                   "graph_classified.html"),
+                                                       graph.candidate_src, graph.candidate_dst,
+                                                       expected_labels=None,
+                                                       predicted_labels=[e.type for e in classified_edges])
     return classified_edges

@@ -17,9 +17,6 @@ from groovi.seq.sv import *
 
 @dataclass(frozen=True)
 class GrooviNode:
-    """
-    Node of the Groovi graph represented by the genomic locus and H/T assignment
-    """
     chr_name: str
     ref_pos: int
     type: NodeType
@@ -41,13 +38,11 @@ class GrooviGraph:
     Edge features (graph.edata):
         - FEAT_TYPE: Tensor of shape (num_edges,) indicating the type of each edge
         - FEAT: Tensor of shape (num_edges, num_edge_features) with feature values
-
     Additional attributes:
         - candidate_src: Tensor of shape (num_candidate_edges,) indicating source nodes of candidate edges
         - candidate_dst: Tensor of shape (num_candidate_edges,) indicating destination nodes of candidate edges
         - candidate_support: Tensor of shape (num_candidate_edges,) indicating read support of candidate edges
     """
-
     def __init__(self, config):
         self.config = config
         self.dgl_graph: dgl.DGLGraph = dgl.graph(([], []))
@@ -94,7 +89,6 @@ class GrooviGraph:
 
         all_feats = torch.stack([head_feats, tail_feats], dim=1).view(2 * n, self.config.n_node_features)
         ht_labels = torch.tensor([0, 1] * n, dtype=torch.int64) # TODO: this is redundant with the new node feature set(s) setup
-
         self.dgl_graph.add_nodes(2 * n, data={HT: ht_labels, FEAT: all_feats})
 
     def add_segment_edges(self, ref_segments):
@@ -151,32 +145,6 @@ class GrooviGraph:
                 FEAT: self.candidate_support.float().unsqueeze(-1)
             })
 
-    def add_edge_features(self, split_by_sign=True):
-        # edge feature: change in depth
-        edge_mask = ((self.dgl_graph.edata[FEAT_TYPE] != self.config.edge_feat2id[EdgeFeature.SEG]) &
-                     (self.dgl_graph.edata[FEAT_TYPE] != self.config.edge_feat2id[EdgeFeature.IS_TINY_SEG]))
-        u, v = self.dgl_graph.edges()
-        edge_mask = edge_mask & (u < v)
-        u, v = u[edge_mask], v[edge_mask]
-        rd_min = self.dgl_graph.ndata[FEAT][u, self.config.node_feat2id[NodeFeature.RD]]
-        rd_max = self.dgl_graph.ndata[FEAT][v, self.config.node_feat2id[NodeFeature.RD]]
-        rd_delta = (rd_min - rd_max).unsqueeze(-1)
-
-        if not split_by_sign:
-            self._add_edges(u, v, data={FEAT_TYPE: torch.full((len(u),), self.config.edge_feat2id[EdgeFeature.RD]),
-                                        FEAT: rd_delta})
-        else:
-            pos_mask = (rd_delta >= 0).squeeze()
-            neg_mask = ~pos_mask
-            if pos_mask.any():
-                self._add_edges(u[pos_mask], v[pos_mask],
-                                data={FEAT_TYPE: torch.full((pos_mask.sum(),), self.config.edge_feat2id[EdgeFeature.RD_POS]),
-                                      FEAT: rd_delta[pos_mask]})
-            if neg_mask.any():
-                self._add_edges(u[neg_mask], v[neg_mask],
-                                data={FEAT_TYPE: torch.full((neg_mask.sum(),), self.config.edge_feat2id[EdgeFeature.RD_NEG]),
-                                      FEAT: rd_delta[neg_mask].abs()})
-
     def get_edge_types(self, src_node_id, dst_node_id):
         _, _, edge_ids = self.dgl_graph.edge_ids(src_node_id, dst_node_id, return_uv=True)
         if len(edge_ids) == 0: return 0
@@ -193,33 +161,26 @@ class GrooviGraph:
         signal_processing = SVSignalProcessor(config)
         junctions = signal_processing.extract_junctions(cluster=config.cluster)
         segments = signal_processing.extract_segments(junctions)
-
+        logging.info("Building the Groovi graph...")
         groovi_graph = GrooviGraph(config)
-        logging.info("Collecting stats")
+        logging.info("Collecting alignment stats")
         node_stats = signal_processing.generate_stats(segments)
-
         logging.info("Adding nodes and node features")
         groovi_graph.add_nodes(segments, node_stats=node_stats)
-
         logging.info("Adding segment edges")
         groovi_graph.add_segment_edges(segments)
-
         logging.info("Adding reference edges")
         groovi_graph.add_reference_edges(segments)
-
         logging.info("Adding novel adjacency edges")
         groovi_graph.add_novel_junction_edges(junctions)
-
         logging.info("Filtering novel adjacency edges")
         groovi_graph.filter_candidate_edges(config.candidate_support_threshold)
-
-        logging.info("Graph construction complete")
+        logging.info("Graph construction complete!")
         return groovi_graph
 
     def _add_edges(self, src, dst, data, directed=False):
         self.dgl_graph.add_edges(src, dst, data=data)
-        if not directed:
-            self.dgl_graph.add_edges(dst, src, data=data)
+        if not directed: self.dgl_graph.add_edges(dst, src, data=data)
 
     def _add_node(self, ref_segment, node_type, idx):
         self.id_to_node[idx] = GrooviNode.from_segment(ref_segment, node_type)

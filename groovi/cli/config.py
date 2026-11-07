@@ -4,18 +4,16 @@ import datetime
 import logging
 import os
 from pathlib import Path
-import shutil
 import sys
 import torch
 import yaml
-from groovi.utils.logging import create_logger
 from groovi.utils.utils import seed_everything, limit_cores
 from groovi.graph.constants import *
 from groovi.graph.transforms import *
 
 SHARED_DEFAULTS = {
     'logging_level': "INFO",
-    'class_set': "CPX10",
+    'class_set': "CPX14",
     'node_feature_set': 'A',
     'edge_feature_set': 'A',
     "seed": 12345,
@@ -56,7 +54,7 @@ GENERATE_DEFAULTS = {
 }
 
 MODEL_DEFAULTS = {
-    "rgcn_hidden_dim": [256, 128],
+    "rgcn_hidden_dim": [256, 128, 128],
     "mlp_hidden_dim": [128, 64, 64],
     "mlp_dropout": 0.3,
     "rgcn_dropout": 0.3,
@@ -64,9 +62,9 @@ MODEL_DEFAULTS = {
     'node_feature_proj_dim': None,
     'edge_feature_proj_dim': None,
     'augment_nodes_rgcn': True,
-    'node_augmentation': "DIFF", #RATIO
+    'node_augmentation': "DIFF",
     'edge_representation': 'SUPPORT',
-    'rgcn_layer': "Default", #Custom
+    'rgcn_layer': "Default",
     'rgcn_custom_update': True, # only for Custom layer
 }
 
@@ -84,28 +82,31 @@ TRAIN_ENGINE_DEFAULTS = {
 }
 
 STITCHING_DEFAULTS = {
-    'cluster_support_threshold': 2, # overrides default generation cluster_support_threshold
     "breakpoint_threshold": 500,
-    "sep_frag_recs": True,
-    "unmatched_edge_file": None,
-    "filter_overlaps": False,
-    "deduplicate_calls": True,
-    "gap_file": None,
-    "minimum_length": 50,
-    "use_cached_predictions": False,
-    "prioritize_evidence": True,
-    'maximum_length': 1000000,
     "minimum_fragment_length": 2,
-    'duplication_threshold': 10,
 }
 
 GENERATE_DEFAULTS = {**SHARED_DEFAULTS, **GENERATE_DEFAULTS}
 TRAIN_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **TRAIN_ENGINE_DEFAULTS}
 DISCOVER_DEFAULTS = {**SHARED_DEFAULTS, **MODEL_DEFAULTS, **GENERATE_DEFAULTS, **STITCHING_DEFAULTS}
 DISCOVER_DEFAULTS.update({
+    'cluster_support_threshold': 2,
     'save_graphs': False,
-    'use_cached_graphs': False,
+    "deduplicate_calls": True,
+    "prioritize_evidence": True,
+    "use_cached_predictions": False,
+    "minimum_length": 50,
+    'maximum_length': 1000000,
+    'duplication_threshold': 10,
+    "split_csv_format": True,
 })
+
+def setup_loggers(log_file, logging_level, mode='w'):
+    stdout = logging.StreamHandler(sys.stdout)
+    stdout.addFilter(lambda r: not getattr(r, "stdout", False))
+    file = logging.FileHandler(log_file, mode=mode, encoding='utf-8')
+    logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging_level,
+                        handlers=[file, stdout], force=True)
 
 class Config:
     def __init__(self, config_yaml):
@@ -123,14 +124,12 @@ class Config:
 
         # -------- setup logging
         self.log_file = os.path.join(self.log_dir, 'main.log')
-        logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.getLevelName(self.logging_level),
-                            handlers=[logging.FileHandler(self.log_file, mode='w'), logging.StreamHandler(sys.stdout)])
-
-        # -------- additional logs
-        self.stitched_filter_logger = create_logger("post_stitching_filter", os.path.join(self.log_dir, 'post_stitching_filter.log'), log_to_console=False)
+        self.filter_log_file = os.path.join(self.log_dir, 'filters.log')
+        setup_loggers(self.log_file, self.logging_level)
+        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
 
         # -------- setup shared data/model configs
-        self.classes = groovi.seq.sv.TYPE_SET_TO_TYPES[groovi.seq.sv.SVTypeSet[self.class_set]]
+        self.classes = groovi.seq.sv.TYPE_SET_TO_TYPES[groovi.seq.sv.JunctionSet[self.class_set]]
         self.n_classes = len(self.classes)
         self.class2label = {sv_class: i for i, sv_class in enumerate(self.classes)}
         self.node_feature_set = NODE_FEATURE_SETS[self.node_feature_set]
@@ -175,9 +174,8 @@ class GenerateConfig(Config):
         self.img_dir = os.path.join(self.experiment_dir, "vis")
         Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
         Path(self.img_dir).mkdir(parents=True, exist_ok=True)
-        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
-        self.bkp_raw_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_raw.vcf")
-        self.bkp_cluster_vcf_file_path = os.path.join(self.log_dir, "groovi_bkps_cluster.vcf")
+        self.junction_raw_file = os.path.join(self.log_dir, "groovi_junctions_raw.vcf")
+        self.junction_cluster_file = os.path.join(self.log_dir, "groovi_junctions_clustered.vcf")
         self.validate_params()
         logging.info(self)
 
@@ -199,14 +197,11 @@ class DiscoverConfig(Config):
         Path(self.graph_dir).mkdir(parents=True, exist_ok=True)
         Path(self.img_dir).mkdir(parents=True, exist_ok=True)
         Path(self.results_dir).mkdir(parents=True, exist_ok=True)
-        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
-        self.bkp_raw_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_raw.vcf")
-        self.bkp_cluster_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_cluster.vcf")
-        self.bkp_vcf_file_path = os.path.join(self.results_dir, "groovi_bkps_classified.vcf")
-        self.complex_sv_vcf_file_path = os.path.join(self.results_dir, "groovi.vcf")
-        # TODO: add other outputs
-        self.bkp_unmatched_file_path = os.path.join(self.results_dir, "groovi_bkps_unmatched.vcf")
-        self.complex_sv_unfiltered_file_path = os.path.join(self.results_dir, "groovi_unfiltered.vcf")
+        self.junction_raw_file = os.path.join(self.results_dir, "groovi_junctions_raw.vcf")
+        self.junction_cluster_file = os.path.join(self.results_dir, "groovi_junctions_clustered.vcf")
+        self.junction_classified_file = os.path.join(self.results_dir, "groovi_junctions_classified.vcf")
+        self.csv_candidates_file = os.path.join(self.results_dir, "groovi_csv_candidates.vcf")
+        self.csv_final_vcf_file = os.path.join(self.results_dir, "groovi.vcf")
 
         # -------- setup compute
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.gpu_ids))
@@ -220,7 +215,7 @@ class DiscoverConfig(Config):
         seed_everything(self.seed)
 
         self.validate_params()
-        logging.info(self)
+        logging.info(self, extra={"stdout": True})
 
 
 class TrainEdgeConfig(Config):
@@ -237,7 +232,6 @@ class TrainEdgeConfig(Config):
         Path(self.tensorboard_dir).mkdir(parents=True, exist_ok=True)
         Path(self.model_checkpoints_dir).mkdir(parents=True, exist_ok=True)
         self.model_path = os.path.join(self.experiment_dir, "best_model.pt")
-        self.stats_file_path = os.path.join(self.log_dir, "stats.txt")
 
         # -------- setup compute
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.gpu_ids))
@@ -257,15 +251,4 @@ class TrainEdgeConfig(Config):
 
         self.validate_params()
         logging.info(self)
-
-class TrainGraphConfig(Config):
-    def __init__(self, config_yaml: str):
-        super().__init__(config_yaml)
-        # ... Fill
-        self.enforced_params += [
-            # additional model specifications
-            "pooling",
-            "label_key",
-        ]
-        self._validate_params()
 

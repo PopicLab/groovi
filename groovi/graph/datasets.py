@@ -34,7 +34,6 @@ class StreamingGraphDataset(IterableDataset):
             graph = GrooviGraph.build(self.config)
 
         if self.config.save_graphs: self.save(graph)
-
         graph.apply_transforms(T.Compose(self.config.transforms))
         self.stats.write_stats([graph], "streaming")
         if self.config.visualize_graphs:
@@ -78,7 +77,7 @@ class StaticEdgeDataset(StaticDataset):
         all_sv_class_matches = []
         for i, graph_info in enumerate(zip(self.graphs, self.annotations)):
             graph, vcf_path = graph_info
-            tree: SVDB = SVDB(vcf_path, config.classes)
+            tree: JunctionDB = JunctionDB(vcf_path, config.classes)
             sv_class_matches = []
             label_summary = [f"Graph {i}: {vcf_path}"]
             for src, dst, support in zip(graph.candidate_src, graph.candidate_dst, graph.candidate_support):

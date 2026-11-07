@@ -3,14 +3,14 @@ import groovi.seq.io as io
 
 import numpy as np
 from scipy.spatial import KDTree
-import string
 from intervaltree import IntervalTree
 from collections import defaultdict
 from dataclasses import dataclass
 import logging
 from pycues import *
+from copy import copy
 
-BP_TYPES = [
+JUNCTION_TYPES = [
     # simple
     "DEL", "DUP",
     "INV", "INV_A", "INV_B",
@@ -36,54 +36,33 @@ BP_TYPES = [
     "NEG",
 ]
 
-SVBpType = groovi.utils.types.make_enum("SVBpType", BP_TYPES, __name__)
-SVTypeSet = groovi.utils.types.make_enum("SVBpTypeSet",["CPX10", "CPX11", "CPX14", "CPX14_SYM"], __name__)
+JunctionType = groovi.utils.types.make_enum("JunctionType", JUNCTION_TYPES, __name__)
+JunctionSet = groovi.utils.types.make_enum("JunctionSet", ["CPX10", "CPX14"], __name__)
 
 TYPE_SET_TO_TYPES = {
-    SVTypeSet.CPX10: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
-                                           SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
-                                           SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                                           SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                                           SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                                           SVBpType.delINVdel_A, SVBpType.delINVdel_B,
-                                           SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
-                                           ],
-    SVTypeSet.CPX11: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
-                      SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
-                      SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                      SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                      SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                      SVBpType.delINVdel_A, SVBpType.delINVdel_B,
-                      SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
-                      SVBpType.dDUP_A, SVBpType.dDUP_B, SVBpType.dDUP_C, SVBpType.dDUP_D,
-                      ],
-    SVTypeSet.CPX14: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
-                      SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
-                      SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                      SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                      SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                      SVBpType.delINVdel_A, SVBpType.delINVdel_B,
-                      SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
-                      SVBpType.nrTRA_A, SVBpType.nrTRA_B, # TODO: nrTRA subject to change
-                      SVBpType.dDUP_A, SVBpType.dDUP_B, SVBpType.dDUP_C, SVBpType.dDUP_D,
-                      SVBpType.INV_nrTRA_A, SVBpType.INV_nrTRA_B, SVBpType.INV_nrTRA_C, SVBpType.INV_nrTRA_D, SVBpType.INV_nrTRA_E, SVBpType.INV_nrTRA_F,
-                      SVBpType.INV_dDUP_A, SVBpType.INV_dDUP_B, SVBpType.INV_dDUP_C, SVBpType.INV_dDUP_D,
-                      ],
-    SVTypeSet.CPX14_SYM: [SVBpType.NEG, SVBpType.DEL, SVBpType.DUP, SVBpType.INV_A, SVBpType.INV_B,
-                          SVBpType.DUP_INV_A, SVBpType.DUP_INV_B, SVBpType.DUP_INV_C,
-                          SVBpType.INVdel_A, SVBpType.INVdel_B, SVBpType.delINV_A, SVBpType.delINV_B,
-                          SVBpType.dupINVdel_A, SVBpType.dupINVdel_B,
-                          SVBpType.delINVdup_A, SVBpType.delINVdup_B,
-                          SVBpType.delINVdel_A, SVBpType.delINVdel_B,
-                          SVBpType.dupINVdup_A, SVBpType.dupINVdup_B,
-                          SVBpType.nrTRA_A, SVBpType.nrTRA_B,
-                          SVBpType.dDUP_A, SVBpType.dDUP_B,
-                          SVBpType.INV_nrTRA_A, SVBpType.INV_nrTRA_B, SVBpType.INV_nrTRA_C,
-                          SVBpType.INV_dDUP_A, SVBpType.INV_dDUP_B,
-                          ]
+    JunctionSet.CPX10: [JunctionType.NEG, JunctionType.DEL, JunctionType.DUP, JunctionType.INV_A, JunctionType.INV_B,
+                        JunctionType.DUP_INV_A, JunctionType.DUP_INV_B, JunctionType.DUP_INV_C,
+                        JunctionType.INVdel_A, JunctionType.INVdel_B, JunctionType.delINV_A, JunctionType.delINV_B,
+                        JunctionType.dupINVdel_A, JunctionType.dupINVdel_B,
+                        JunctionType.delINVdup_A, JunctionType.delINVdup_B,
+                        JunctionType.delINVdel_A, JunctionType.delINVdel_B,
+                        JunctionType.dupINVdup_A, JunctionType.dupINVdup_B,
+                        ],
+    JunctionSet.CPX14: [JunctionType.NEG, JunctionType.DEL, JunctionType.DUP, JunctionType.INV_A, JunctionType.INV_B,
+                        JunctionType.DUP_INV_A, JunctionType.DUP_INV_B, JunctionType.DUP_INV_C,
+                        JunctionType.INVdel_A, JunctionType.INVdel_B, JunctionType.delINV_A, JunctionType.delINV_B,
+                        JunctionType.dupINVdel_A, JunctionType.dupINVdel_B,
+                        JunctionType.delINVdup_A, JunctionType.delINVdup_B,
+                        JunctionType.delINVdel_A, JunctionType.delINVdel_B,
+                        JunctionType.dupINVdup_A, JunctionType.dupINVdup_B,
+                        JunctionType.nrTRA_A, JunctionType.nrTRA_B,
+                        JunctionType.dDUP_A, JunctionType.dDUP_B,
+                        JunctionType.INV_nrTRA_A, JunctionType.INV_nrTRA_B, JunctionType.INV_nrTRA_C,
+                        JunctionType.INV_dDUP_A, JunctionType.INV_dDUP_B,
+                        ]
 }
 
-class SVBreakpoint:
+class SVJunction:
     def __init__(self, sv_type, chr1, pos1, chr2, pos2, qual, gt=(None, None), evidence=None):
         self.type = sv_type
         self.chr1 = chr1
@@ -109,8 +88,8 @@ class SVBreakpoint:
             chr2 = rec.info['END_CHROM']
         if 'SVTYPE' in rec.info: sv_type = rec.info['SVTYPE']
         elif 'BKP_TYPE' in rec.info: sv_type = rec.info['BKP_TYPE']
-        else: sv_type = SVBpType.BND
-        sv = SVBreakpoint(sv_type, chr1, rec.start, chr2, rec.stop, rec.qual, gt)
+        else: sv_type = JunctionType.BND
+        sv = SVJunction(sv_type, chr1, rec.start, chr2, rec.stop, rec.qual, gt)
         if 'ORIENTATION' in rec.info and rec.info['ORIENTATION'] is not None:
             sv.orientation = rec.info['ORIENTATION']
         if 'SUPPORT' in rec.info and rec.info['SUPPORT'] is not None:
@@ -126,8 +105,8 @@ class SVBreakpoint:
 
     @classmethod
     def from_junction(cls, junction):
-        sv = SVBreakpoint("BND", junction.chr1, junction.pos1, junction.chr2, junction.pos2, 0,
-                            (None, None), junction.support)
+        sv = SVJunction("BND", junction.chr1, junction.pos1, junction.chr2, junction.pos2, 0,
+                        (None, None), junction.support)
         sv.orientation = junction.orientation.name
         sv.source = junction.source.name
         return sv
@@ -161,7 +140,7 @@ class SVBreakpoint:
         return {sv_class: i for i, sv_class in enumerate(sv_classes)}
 
 
-class SVDB:
+class JunctionDB:
     """
     Efficient querying of SV breakpoint records:
      * using KDTrees (stratified by chromosome pair) with L2 distance
@@ -197,12 +176,12 @@ class SVDB:
         chr_key = self._get_key(chr1, chr2)
         candidates = []
         if hasattr(self, 'chr2kdtrees'):
-            if chr_key not in self.chr2kdtrees: return SVBpType.NEG, None
+            if chr_key not in self.chr2kdtrees: return JunctionType.NEG, None
             distances, sv_bkp_idx = self.chr2kdtrees[chr_key].query(query, k=k)
             for sv_idx, distance in zip(sv_bkp_idx, distances):
                 if distance < max_distance: candidates.append((distance, sv_idx))
         else:
-            if chr_key not in self.chr2intvtrees: return SVBpType.NEG, None
+            if chr_key not in self.chr2intvtrees: return JunctionType.NEG, None
             size_sim = 0.5
             for c in self.chr2intvtrees[(chr1, chr2)].overlap(query[0], query[1]):
                 if abs(c.begin - query[0]) > max_distance or abs(c.end - query[1]) > max_distance: continue
@@ -216,15 +195,82 @@ class SVDB:
             if sv_match.type not in self.sv_classes_to_label: continue
             if orientation is not None and sv_match.orientation != orientation: continue
             return sv_match.type, dist
-        return SVBpType.NEG, None
+        return JunctionType.NEG, None
 
+
+class ComplexSV:
+    def __init__(self, spec, chrom, qual=None, records=None):
+        self.spec = spec
+        self.sv_type = self.spec.get('sv_type')
+        self.direction = self.spec.get('direction')
+        self.chrom = chrom
+        self.qual = qual
+        self.records = records if isinstance(records, dict) else dict(zip(self.spec['candidates'], records))
+        self.fragments = self.spec['fragment_fn'](self)
+        self.validated = all(fn(self) for fn in self.spec['validation_fns'])
+        self.grammar = self.spec['grammar']
+        self.target, self.target_chrom = None, None
+        if self.spec.get('dispersion', False):
+            moved = next(frag for frag in self.fragments if frag.target_start is not None)
+            self.target, self.target_chrom = moved.target_start, moved.target_chrom
+            if isinstance(self.grammar, dict):
+                self.direction = 'left' if self.target < moved.start else 'right'
+                self.grammar = self.grammar[self.direction]
+        self.grammars = [(self.grammar, self.fragments)]
+        for grammar, fragments in self.spec.get('alternative_grammars_fn', lambda csv: [])(self):
+            alternative = copy(self)
+            alternative.fragments = fragments
+            if all(fn(alternative) for fn in self.spec['validation_fns']):
+                self.grammars.append((grammar, fragments))
+
+    def __str__(self):
+        return repr((self.sv_type, self.chrom, self.qual, self.records))
+
+    def get_vcf_info(self):
+        start = min(frag.start for frag in self.fragments)
+        stop = max(frag.end for frag in self.fragments)
+        vcf_info = {'chrom': self.chrom,
+                    'start': start,
+                    'stop': stop,
+                    'sv_type': self.sv_type,
+                    'qual': self.qual,
+                    'sv_len': stop - start,
+                    'gt': (None, None), 'op_type': self.spec.get('op_name', self.sv_type)}
+        if self.target:
+            vcf_info['target'] = self.target
+        return vcf_info
+
+class JunctionStitchIndex:
+    def __init__(self, buffer):
+        self.buffer = buffer
+        self.junctions = []
+        self.ends = defaultdict(IntervalTree)
+        self.spans = defaultdict(IntervalTree)
+
+    def add(self, rec):
+        self.junctions.append(rec)
+        for chrom, pos in ((rec.chr1, rec.pos1), (rec.chr2, rec.pos2)):
+            self.ends[chrom].addi(pos - self.buffer, pos + self.buffer + 1, rec)
+        if rec.chr1 == rec.chr2:
+            self.spans[rec.chr1].addi(rec.pos1, rec.pos2, rec)
+
+    def near(self, chrom, pos):
+        tree = self.ends.get(chrom)
+        return {i.data for i in tree.at(pos)} if tree else set()
+
+    def overlapping(self, chrom, begin, end):
+        tree = self.spans.get(chrom)
+        return {i.data for i in tree.overlap(begin, end)} if tree else set()
+
+    def enveloped(self, chrom, begin, end):
+        tree = self.spans.get(chrom)
+        return {i.data for i in tree.envelop(begin, end)} if tree else set()
+
+    def __iter__(self):
+        return iter(self.junctions)
 
 @dataclass
-class Fragment:
-    """
-    Defines an operation of source [start, end), optionally, at position target_start, ordered by insord among
-    insertions at the same target.
-    """
+class FragmentOp:
     chrom: str
     start: int
     end: int
@@ -236,9 +282,6 @@ class Fragment:
 
     def __post_init__(self):
         # force ends to be at least one position after start
-        if self.end < self.start + 1:
-            self.end = self.start + 1
-
-        if self.target_start is not None and self.target_end is not None and self.target_end < self.target_start + 1:
-            self.target_end = self.target_start + 1
-
+        self.end = max(self.end, self.start + 1)
+        if self.target_start is not None and self.target_end is not None:
+            self.target_end = max(self.target_end, self.target_start + 1)

@@ -1,37 +1,63 @@
+# Copyright (c) 2024-2026 Popic Lab
+#
+#This program is free software: you can redistribute it and/or modify
+#it under the terms of the GNU Affero General Public License as published by
+#the Free Software Foundation, either version 3 of the License, or
+#(at your option) any later version.
+
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#GNU Affero General Public License for more details.
+
+#You should have received a copy of the GNU Affero General Public License
+#along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import groovi
 from groovi.cli.config import DiscoverConfig
 from groovi.graph.datasets import StreamingGraphDataset
-from groovi.graph.visualize import visualize_groovi_graph
-from groovi.gnn.models import *
-from groovi.gnn.engine import *
+from groovi.gnn.models import EdgeClassifier
+from groovi.gnn.engine import evaluate
 import groovi.seq.io as io
-from groovi.seq.stitching import generate_merged_callset
+from groovi.seq.stitch_rules import assemble_csvs
+from groovi.seq.sv import JunctionType
+from groovi.seq.filters import filter_csvs
+from collections import Counter
 import logging
 import torch
 
 def main(config_yaml):
+    print("*********************************")
+    print("* groovi (%s): CSV discovery *" % groovi.__version__)
+    print("*********************************")
+
     config = DiscoverConfig(config_yaml)
     if config.use_cached_predictions:
-        classified_sv_bkps = [sv for sv in io.vcf_iter(config.bkp_vcf_file_path)]
+        logging.info("Loading cached predictions...")
+        sv_junctions = [sv for sv in io.vcf_iter(config.junction_classified_file)]
     else:
         # --------- 1. Model Setup--------
-        #model = EdgeClassificationModel(config)
-        #model = Model([config.n_node_features] + config.rgcn_hidden_dim, config.n_edge_types, config.n_classes)
         model = EdgeClassifier(config)
-
         model.load_state_dict(torch.load(config.model, map_location=config.device))
         model = model.to(device=config.device)
-        # ------ 2. Breakpoint classification ------
+
+        # ------ 2. Junction classification ------
         logging.info("Running model prediction...")
         graph = next(iter(StreamingGraphDataset(config)))
-        classified_sv_bkps = evaluate(config, model, graph)
-        
-        # ------ 3. Visualization ------
-        if config.visualize_graphs: visualize_groovi_graph(config, graph, os.path.join(config.img_dir, "graph_annotated.html"), graph.candidate_src, graph.candidate_dst, expected_labels=None, predicted_labels=[svbkp.type for svbkp in classified_sv_bkps])
+        classified_adj = evaluate(config, model, graph)
 
-        # ----- 4. Filter Neg, Write classified breakpoints to VCF ------
-        classified_sv_bkps = [sv for sv in classified_sv_bkps if sv.type != SVBpType.NEG]
-        logging.info("Writing breakpoint classification results...")
-        io.write_bkp_vcf(config.bkp_vcf_file_path, classified_sv_bkps, config.fai_index)
+        # ----- 3. Output SV junctions ------
+        sv_junctions = [sv for sv in classified_adj if sv.type != JunctionType.NEG]
+        logging.info(f"Classified {len(sv_junctions)} SV junctions")
+        io.write_junction_vcf(config.junction_classified_file, sv_junctions, config.fai_index)
 
-    # ------ 3. Breakpoint stitching/filtering ------
-    generate_merged_callset(classified_sv_bkps, config)
+    # ------ 4. Stitch CSVs ------
+    csvs = assemble_csvs(sv_junctions, tolerance=config.breakpoint_threshold)
+    logging.info(f'Assembled {len(csvs)} SV candidates')
+    io.write_csv_vcf(csvs, config.csv_candidates_file, config.fai_index, split_records=config.split_csv_format)
+
+    # ------ 5. Filter and report CSVs ------
+    csvs = filter_csvs(csvs, config)
+    logging.info(f"Final SV classes: {dict(sorted(Counter(sv.sv_type for sv in csvs).items()))}")
+    io.write_csv_vcf(csvs, config.csv_final_vcf_file, config.fai_index, split_records=config.split_csv_format)
+    logging.info(f'Wrote {len(csvs)} assembled SVs to: {config.csv_final_vcf_file}')
