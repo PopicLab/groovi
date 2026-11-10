@@ -56,7 +56,7 @@ aligned with soft clipping only and `=/X` CIGAR operation encoding)
 #### Graph generation (`groovi generate`)
 `generate` takes the same bam, fa and n_cpus parameters as call and writes the graph to `graphs/graph_full.pkl`.
 
-### Training
+#### Training (`groovi train`)
 
 Example `config.yaml`:
 
