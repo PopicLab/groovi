@@ -1,0 +1,22 @@
+name: groovi
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - cmake=4.0.3
+  - cxx-compiler=1.8.0
+  - minimap2=2.30
+  - htslib=1.22
+  - zlib
+  - dglteam/label/cu117::dgl=2.1.0
+  - numpy<2
+    #- setuptools=80.9.0
+  #- wheel=0.45.1
+  #- pip:
+  #  - --extra-index-url https://download.pytorch.org/whl/cu118
+  #  - --find-links https://data.dgl.ai/wheels/cu118/repo.html
+  #  - torch==2.0.1+cu118
+  #  - dgl==2.1.0+cu118
+  #  - torchdata==0.7.1
+ 
